@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.7] - 2026-03-24
+
+### Fixed
+
+- Add low-level ASGI path normalization so malformed ingress requests like // are rewritten to / before route matching.
+- Sync add-on and runtime versions to 0.1.7 to force rebuild and avoid stale containers.
+
 ## [0.1.6] - 2026-03-24
 
 ### Fixed

@@ -39,6 +39,23 @@ WEB_DIR = APP_DIR / "web"
 STATIC_DIR = WEB_DIR / "static"
 
 
+class NormalizePathASGIMiddleware:
+    """Normalize repeated slashes in ASGI scope path before routing."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            original_path = scope.get("path") or "/"
+            normalized_path = re.sub(r"/{2,}", "/", original_path)
+            if normalized_path != original_path:
+                scope = dict(scope)
+                scope["path"] = normalized_path
+                scope["raw_path"] = normalized_path.encode("utf-8")
+        await self.app(scope, receive, send)
+
+
 def _serialise_routes(fastapi_app: FastAPI) -> list[dict[str, object]]:
     """Build a JSON-safe route listing for diagnostics."""
     route_rows: list[dict[str, object]] = []
@@ -189,16 +206,6 @@ def create_app() -> FastAPI:
     _app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @_app.middleware("http")
-    async def normalize_path_middleware(request: Request, call_next):
-        """Normalize malformed proxy paths like '//' before route matching."""
-        original_path = request.scope.get("path", "") or "/"
-        normalized_path = re.sub(r"/{2,}", "/", original_path)
-        if normalized_path != original_path:
-            request.scope["path"] = normalized_path
-            request.scope["raw_path"] = normalized_path.encode("utf-8")
-        return await call_next(request)
-
-    @_app.middleware("http")
     async def request_trace_middleware(request: Request, call_next):
         logger.info(
             "HTTP request received: method=%s path=%s raw_path=%s root_path=%s x_ingress_path=%s",
@@ -260,6 +267,7 @@ def create_app() -> FastAPI:
             )
 
     _app.add_middleware(AdminAuthMiddleware)
+    _app.add_middleware(NormalizePathASGIMiddleware)
 
     # Root redirect
     @_app.get("/", include_in_schema=False)
