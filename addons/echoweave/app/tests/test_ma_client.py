@@ -33,13 +33,15 @@ def test_auth_headers_without_token():
 class _MockTransport(httpx.AsyncBaseTransport):
     """Minimal mock transport for testing the MA client."""
 
-    def __init__(self, responses: dict[str, tuple[int, dict]] | None = None):
+    def __init__(self, responses: dict[tuple[str, str], tuple[int, object]] | None = None):
         self._responses = responses or {}
+        self.last_request: httpx.Request | None = None
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path in self._responses:
-            status, body = self._responses[path]
+        self.last_request = request
+        key = (request.method.upper(), request.url.path)
+        if key in self._responses:
+            status, body = self._responses[key]
             return httpx.Response(status, json=body)
         return httpx.Response(404, json={"error": "not found"})
 
@@ -48,16 +50,17 @@ class _MockTransport(httpx.AsyncBaseTransport):
 def mock_client():
     """Create a MusicAssistantClient with a mock transport."""
     responses = {
-        "/api": (200, {"server_id": "test-server", "server_version": "1.0.0", "schema_version": 1}),
-        "/api/players": (200, [{"player_id": "p1", "name": "Test Player"}]),
+        ("POST", "/api"): (200, {"result": [{"player_id": "p1", "name": "Test Player"}]}),
     }
+    transport = _MockTransport(responses)
     client = MusicAssistantClient(base_url="http://mock-ma", token="test-token")
     # Inject mock transport
     client._client = httpx.AsyncClient(
         base_url="http://mock-ma",
         headers=build_auth_headers("test-token"),
-        transport=_MockTransport(responses),
+        transport=transport,
     )
+    client._transport = transport
     return client
 
 
@@ -65,8 +68,7 @@ def mock_client():
 def auth_fail_client():
     """Client where auth always returns 401."""
     responses = {
-        "/api": (200, {"server_id": "s", "server_version": "1", "schema_version": 1}),
-        "/api/players": (401, {"error": "unauthorized"}),
+        ("POST", "/api"): (401, {"error": "unauthorized"}),
     }
     client = MusicAssistantClient(base_url="http://mock-ma", token="bad-token")
     client._client = httpx.AsyncClient(
@@ -86,6 +88,14 @@ async def test_ping_success(mock_client: MusicAssistantClient):
 
 @pytest.mark.anyio
 async def test_get_server_info(mock_client: MusicAssistantClient):
+    # Override transport response for server/info command shape.
+    mock_client._client = httpx.AsyncClient(
+        base_url="http://mock-ma",
+        headers=build_auth_headers("test-token"),
+        transport=_MockTransport({
+            ("POST", "/api"): (200, {"result": {"server_id": "test-server", "server_version": "1.0.0", "schema_version": 1}}),
+        }),
+    )
     info = await mock_client.get_server_info()
     assert info.server_id == "test-server"
     assert info.server_version == "1.0.0"
@@ -96,6 +106,11 @@ async def test_get_server_info(mock_client: MusicAssistantClient):
 async def test_validate_token_success(mock_client: MusicAssistantClient):
     result = await mock_client.validate_token()
     assert result is True
+    req = mock_client._transport.last_request
+    assert req is not None
+    assert req.method == "POST"
+    assert req.url.path == "/api"
+    assert b'"command":"players/all"' in req.content
     await mock_client.close()
 
 

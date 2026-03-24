@@ -9,6 +9,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from app.core.constants import APP_VERSION
+from app.core.service_registry import registry
+from app.settings import Settings
 from app.storage.secrets import redact_dict
 from app.web.ingress import get_ingress_base_path
 
@@ -25,23 +28,34 @@ async def config_page(request: Request) -> HTMLResponse:
     Shows current config with secrets redacted.  Provides a form to
     update safe (non-sensitive) settings.
     """
-    # TODO: Pull real config from ConfigService.
+    config_svc = registry.get_optional("config_service")
+    if config_svc:
+        settings = config_svc.settings
+    else:
+        settings = Settings()
+
+    settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else dict(vars(settings))
+
     config_summary = redact_dict({
-        "ma_base_url": "",
-        "ma_token": "",
-        "public_base_url": "",
-        "stream_base_url": "",
-        "locale": "en-US",
-        "aws_default_region": "us-east-1",
-        "log_level": "info",
-        "debug": False,
+        "ma_base_url": settings_dict.get("ma_base_url", ""),
+        "ma_token": settings_dict.get("ma_token", ""),
+        "public_base_url": settings_dict.get("public_base_url", ""),
+        "stream_base_url": settings_dict.get("stream_base_url", ""),
+        "locale": settings_dict.get("locale", "en-US"),
+        "aws_default_region": settings_dict.get("aws_default_region", "us-east-1"),
+        "log_level": settings_dict.get("log_level", "info"),
+        "debug": bool(settings_dict.get("debug", False)),
     })
+
+    if settings_dict.get("ma_token"):
+        config_summary["ma_token"] = "**** (set)"
 
     return templates.TemplateResponse(
         request,
         "config.html",
         {
             "base_path": get_ingress_base_path(request),
+            "version": APP_VERSION,
             "config": config_summary,
         },
     )
@@ -54,14 +68,23 @@ async def update_config(request: Request) -> JSONResponse:
     Sensitive values (tokens, passwords) use a separate replacement flow
     where the new value is accepted but never re-displayed.
 
-    TODO: Persist updates via ConfigService.
+    Persists updates via ConfigService.
     """
     try:
         body: dict[str, Any] = await request.json()
-        logger.info("Config update requested for keys: %s", list(body.keys()))
+
+        config_svc = registry.get_optional("config_service")
+        if not config_svc:
+            return JSONResponse(
+                content={"success": False, "message": "Config service not available."},
+                status_code=503,
+            )
+
+        config_svc.save_updates(body)
+        logger.info("Config update persisted for keys: %s", list(body.keys()))
         return JSONResponse(content={
             "success": True,
-            "message": "Config update is not yet implemented.",
+            "message": "Configuration updated.",
         })
     except Exception as exc:
         logger.exception("Error updating config.")
@@ -77,7 +100,7 @@ async def replace_token(request: Request) -> JSONResponse:
 
     The new token is accepted and persisted but never echoed back.
 
-    TODO: Validate the new token against MA before persisting.
+    Token is persisted to ConfigService and storage.
     """
     try:
         body = await request.json()
@@ -87,11 +110,19 @@ async def replace_token(request: Request) -> JSONResponse:
                 content={"success": False, "message": "No token provided."},
                 status_code=400,
             )
-        logger.info("Token replacement requested.")
-        # TODO: Validate + persist.
+
+        config_svc = registry.get_optional("config_service")
+        if not config_svc:
+            return JSONResponse(
+                content={"success": False, "message": "Config service not available."},
+                status_code=503,
+            )
+
+        config_svc.save_updates({"ma_token": new_token})
+        logger.info("Token replacement persisted.")
         return JSONResponse(content={
             "success": True,
-            "message": "Token replacement is not yet implemented.",
+            "message": "Token updated.",
         })
     except Exception as exc:
         logger.exception("Error replacing token.")

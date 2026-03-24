@@ -5,6 +5,17 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.8] - 2026-03-24
+
+### Fixed
+
+- Fix setup/config persistence roundtrip by wiring Config page to live ConfigService values and persisted updates.
+- Display Music Assistant token presence as redacted indicator (`**** (set)`) instead of showing blank when configured.
+- Switch MA validation to command-based `POST /api` requests and add command/url/status logging without exposing token values.
+- Tighten stream/public endpoint health semantics to separate valid, reachable-but-invalid (for example HTTP 404), and unreachable states.
+- Mark local HTTP public endpoints as local-test/non-production instead of Alexa-ready.
+- Sync runtime and packaging version markers to `0.1.8`.
+
 ## [0.1.7] - 2026-03-24
 
 ### Fixed

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -14,13 +15,47 @@ async def check_public_url(public_base_url: str) -> dict[str, Any]:
     """Verify that the configured public URL is reachable from the internet."""
     if not public_base_url:
         return {"key": "public_url_reachable", "status": "warn", "message": "Public URL not configured."}
+
+    parsed = urlparse(public_base_url)
+    host = (parsed.hostname or "").lower()
+    is_localish = host in {"localhost", "127.0.0.1", "0.0.0.0", "homeassistant", "supervisor"} or host.endswith((".local", ".lan", ".internal", ".home"))
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{public_base_url}/health")
+
+        if resp.status_code == 200 and parsed.scheme == "https" and not is_localish:
+            return {
+                "key": "public_url_reachable",
+                "status": "ok",
+                "message": "Public HTTPS endpoint is reachable and Alexa-ready.",
+            }
+
+        if resp.status_code == 200:
+            return {
+                "key": "public_url_reachable",
+                "status": "warn",
+                "message": "Endpoint is reachable for local testing but not Alexa-ready; use public HTTPS.",
+            }
+
+        if 400 <= resp.status_code < 500:
+            return {
+                "key": "public_url_reachable",
+                "status": "warn",
+                "message": f"Public endpoint is reachable but invalid (HTTP {resp.status_code}).",
+            }
+
+        if resp.status_code >= 500:
+            return {
+                "key": "public_url_reachable",
+                "status": "fail",
+                "message": f"Public endpoint returned server error (HTTP {resp.status_code}).",
+            }
+
         return {
             "key": "public_url_reachable",
-            "status": "ok" if resp.status_code == 200 else "warn",
-            "message": f"Public endpoint responded with {resp.status_code}.",
+            "status": "warn",
+            "message": f"Public endpoint returned unexpected HTTP {resp.status_code}.",
         }
     except Exception as exc:
         return {"key": "public_url_reachable", "status": "fail", "message": f"Unreachable: {exc}"}

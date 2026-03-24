@@ -63,11 +63,25 @@ class MAHealthChecker:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.head(stream_base_url)
-            ok = resp.status_code < 500
+                if resp.status_code == 405:
+                    resp = await client.get(stream_base_url)
+            status = resp.status_code
+            if 200 <= status < 400:
+                return {
+                    "key": "stream_url_valid",
+                    "status": "ok",
+                    "message": f"Stream URL is reachable with HTTP {status}.",
+                }
+            if 400 <= status < 500:
+                return {
+                    "key": "stream_url_valid",
+                    "status": "warn",
+                    "message": f"Stream URL is reachable but invalid (HTTP {status}).",
+                }
             return {
                 "key": "stream_url_valid",
-                "status": "ok" if ok else "warn",
-                "message": f"Stream URL responded with {resp.status_code}.",
+                "status": "fail",
+                "message": f"Stream URL service error (HTTP {status}).",
             }
         except Exception as exc:
             return {

@@ -111,12 +111,65 @@ class MusicAssistantClient:
                 f"MA API error: {exc.response.status_code}"
             ) from exc
 
+    def _api_endpoint(self) -> str:
+        if self._base_url.endswith("/api"):
+            return self._base_url
+        return f"{self._base_url}/api"
+
+    async def _post_command(self, command: str, **payload: Any) -> Any:
+        """Call MA command API via POST /api with command payload."""
+        client = await self._ensure_client()
+        endpoint = self._api_endpoint()
+        body: dict[str, Any] = {"command": command}
+        body.update(payload)
+
+        logger.info("MA API request: url=%s command=%s", endpoint, command)
+        try:
+            resp = await client.post(endpoint, json=body)
+            logger.info(
+                "MA API response: url=%s command=%s status=%s",
+                endpoint,
+                command,
+                resp.status_code,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and "result" in data:
+                return data["result"]
+            return data
+        except httpx.ConnectError as exc:
+            logger.warning("MA API connect error: url=%s command=%s", endpoint, command)
+            raise MusicAssistantUnreachableError(
+                f"Cannot reach MA server at {self._base_url}"
+            ) from exc
+        except httpx.TimeoutException as exc:
+            logger.warning("MA API timeout: url=%s command=%s", endpoint, command)
+            raise MusicAssistantUnreachableError(
+                f"MA request timed out for {endpoint}"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            logger.warning(
+                "MA API status error: url=%s command=%s status=%s",
+                endpoint,
+                command,
+                status,
+            )
+            if status == 401:
+                raise MusicAssistantAuthError("MA token rejected (401).") from exc
+            raise MusicAssistantError(
+                f"MA API error: {status} (command={command}, url={endpoint})"
+            ) from exc
+
     # -- public API ----------------------------------------------------------
 
     async def ping(self) -> bool:
         """Return ``True`` if the MA server responds to a health probe."""
         try:
-            await self._get("/api")
+            await self._post_command("players/all")
+            return True
+        except MusicAssistantAuthError:
+            # Reachable but token rejected: connectivity is still OK.
             return True
         except MusicAssistantError:
             return False
@@ -125,22 +178,23 @@ class MusicAssistantClient:
 
     async def get_server_info(self) -> MAServerInfo:
         """Fetch basic server information from MA."""
-        resp = await self._get("/api")
-        data = resp.json()
+        data = await self._post_command("server/info")
         return MAServerInfo.model_validate(data)
 
     async def validate_token(self) -> bool:
         """Return ``True`` if our bearer token is accepted by MA."""
         try:
-            await self._get("/api/players")
+            await self._post_command("players/all")
             return True
         except MusicAssistantAuthError:
             return False
 
     async def get_players(self) -> list[dict[str, Any]]:
         """Return the list of players known to MA."""
-        resp = await self._get("/api/players")
-        return resp.json()
+        data = await self._post_command("players/all")
+        if isinstance(data, list):
+            return data
+        raise MusicAssistantError("MA API error: unexpected players/all response shape")
 
     async def get_queue_items(self, queue_id: str) -> list[MAQueueItem]:
         """Return items in the specified MA queue."""

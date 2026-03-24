@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from app.core.constants import APP_VERSION
 from app.dependencies import get_persistence, get_settings
 from app.storage.models import PersistedConfig
 from app.ma.client import MusicAssistantClient
@@ -62,6 +63,7 @@ async def setup_page(request: Request, settings=Depends(get_settings), persisten
         "setup.html",
         {
             "base_path": get_ingress_base_path(request),
+            "version": APP_VERSION,
             "checklist": checklist,
             "complete": complete,
             "total": total,
@@ -86,6 +88,7 @@ async def validate_ma(payload: ValidateMARequest) -> JSONResponse:
         client = MusicAssistantClient(base_url=payload.ma_base_url, token=payload.ma_token)
         is_up = await client.ping()
         if not is_up:
+            await client.close()
             return JSONResponse({"success": False, "message": "Server unreachable or responded with error."})
             
         is_valid = await client.validate_token()
@@ -111,16 +114,8 @@ async def validate_public(payload: ValidatePublicRequest) -> JSONResponse:
         return JSONResponse({"success": False, "message": "URL is required."})
         
     res = await check_public_url(payload.public_base_url)
-    success = res["status"] in ("ok", "warn") # Warn might just be 404, but it's reachable. Actually we check /health to return 200.
-    
-    if res["status"] == "ok":
-        msg = "Public endpoint responds correctly."
-    else:
-        msg = f"Reachable but warning: {res.get('message', '')}"
-        
-    if res["status"] == "fail":
-        success = False
-        msg = f"Failed to reach endpoint: {res.get('message', '')}"
+    success = res["status"] == "ok"
+    msg = res.get("message", "Validation completed.")
     
     return JSONResponse(content={
         "success": success,
@@ -132,20 +127,25 @@ async def validate_public(payload: ValidatePublicRequest) -> JSONResponse:
 async def save_config(config: PersistedConfig, persistence=Depends(get_persistence)) -> JSONResponse:
     """Save configuration values from the setup form."""
     try:
-        if persistence:
+        config_svc = registry.get_optional("config_service")
+        if config_svc:
+            config_svc.save_persisted(config)
+        elif persistence:
             persistence.save_config(config)
-            
-            # Apply to current settings instance immediately
-            config_svc = registry.get("config_service")
-            if config_svc:
-                config_svc.settings.apply_persisted(config)
-                
-            # Recreate MA Client with new settings
-            new_client = MusicAssistantClient(
-                base_url=config.ma_base_url,
-                token=config.ma_token
-            )
-            registry.register("ma_client", new_client)
+
+        # Recreate MA Client with new settings
+        existing_client = registry.get_optional("ma_client")
+        if existing_client:
+            try:
+                await existing_client.close()
+            except Exception:
+                logger.debug("Existing MA client close failed during config save.", exc_info=True)
+
+        new_client = MusicAssistantClient(
+            base_url=config.ma_base_url,
+            token=config.ma_token
+        )
+        registry.register("ma_client", new_client)
             
         return JSONResponse(content={
             "success": True,

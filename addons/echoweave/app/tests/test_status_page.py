@@ -35,6 +35,38 @@ def test_status_contains_key_elements():
     assert "Music Assistant Connection" in body
 
 
+def test_status_shows_ma_green_when_health_checks_ok(monkeypatch):
+    """Status page should render MA connection/auth as green when checks are OK."""
+
+    class _Check:
+        def __init__(self, key: str, status: str, message: str):
+            self.key = key
+            self.status = status
+            self.message = message
+
+    class _Result:
+        def __init__(self):
+            self.checks = [
+                _Check("ma_reachable", "ok", "Music Assistant is reachable."),
+                _Check("ma_auth_valid", "ok", "Token accepted."),
+            ]
+
+    class _HealthService:
+        async def run_all(self):
+            return _Result()
+
+    monkeypatch.setattr("app.dependencies.get_health_service", lambda: _HealthService())
+
+    with TestClient(app) as client:
+        resp = client.get("/status")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Music Assistant Connection" in body
+    assert "Music Assistant Auth" in body
+    assert "Token accepted." in body
+
+
 def test_root_redirect():
     """GET / should redirect to /setup."""
     with TestClient(app) as client:
@@ -68,7 +100,7 @@ def test_debug_routes_contains_expected_paths():
     assert resp.status_code == 200
 
     payload = resp.json()
-    assert payload["version"] == "0.1.7"
+    assert payload["version"] == "0.1.8"
     assert "effective_base_path" in payload
     assert "scope_path" in payload
     assert "scope_raw_path" in payload
@@ -114,9 +146,9 @@ def test_debug_ping_ui_returns_html():
     assert "EchoWeave UI OK" in resp.text
 
 
-def test_runtime_version_is_017():
-    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.7."""
-    assert APP_VERSION == "0.1.7"
+def test_runtime_version_is_018():
+    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.8."""
+    assert APP_VERSION == "0.1.8"
 
 
 def test_legacy_ingress_path_setup_not_registered():
