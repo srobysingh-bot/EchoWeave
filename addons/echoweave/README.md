@@ -44,6 +44,15 @@ EchoWeave is distributed as a custom Home Assistant add-on repository.
 5. Paste the GitHub URL: `https://github.com/srobysingh-bot/EchoWeave` and click **Add**.
 6. Close the dialog, scroll down, find **EchoWeave Home Assistant Add-ons**, and click **Install**.
 
+### Version Updates In Home Assistant
+
+- EchoWeave now sets `auto_update: true`, so Home Assistant can auto-apply new add-on versions after they are detected.
+- For custom repositories, Home Assistant may cache metadata. To see the newest version quickly:
+  1. Open **Add-on Store**.
+  2. Open the top-right menu (**⋮**).
+  3. Click **Check for updates** (or reload repositories).
+- The **Current version** field on the add-on info page shows the installed version; it changes after update/restart.
+
 ## First-Run Setup
 
 Once installed and started, click **Open Web UI** to configure the bridge:

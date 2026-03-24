@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Tighten stream/public endpoint health semantics to separate valid, reachable-but-invalid (for example HTTP 404), and unreachable states.
 - Mark local HTTP public endpoints as local-test/non-production instead of Alexa-ready.
 - Sync runtime and packaging version markers to `0.1.8`.
+- Enable Home Assistant add-on `auto_update: true` and document repository refresh steps for faster version visibility in UI.
 
 ## [0.1.7] - 2026-03-24
 
