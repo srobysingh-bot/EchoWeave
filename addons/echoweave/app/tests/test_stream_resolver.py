@@ -13,6 +13,8 @@ def test_is_valid_alexa_stream_url():
     assert not is_valid_alexa_stream_url("https://10.0.0.1/s", allow_insecure=False)
     assert not is_valid_alexa_stream_url("https://localhost:5000/stream", allow_insecure=False)
     assert not is_valid_alexa_stream_url("https://127.0.0.1", allow_insecure=False)
+    assert not is_valid_alexa_stream_url("https://homeassistant:8123/stream", allow_insecure=False)
+    assert not is_valid_alexa_stream_url("https://home.local/stream", allow_insecure=False)
     
     # Insecure mode bypass
     assert is_valid_alexa_stream_url("http://example.com", allow_insecure=True)

@@ -27,7 +27,13 @@ def is_valid_alexa_stream_url(url: str, allow_insecure: bool) -> bool:
             return False
             
         hostname = parsed.hostname or ""
-        if hostname.lower() in ("localhost",):
+        
+        # Obvious internal short names
+        if hostname.lower() in ("localhost", "homeassistant", "supervisor", "host.docker.internal"):
+            return allow_insecure
+            
+        # Obvious internal suffixes
+        if hostname.lower().endswith((".local", ".internal", ".test", ".lan", ".home")):
             return allow_insecure
             
         try:

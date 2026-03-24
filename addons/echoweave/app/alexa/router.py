@@ -62,9 +62,15 @@ async def alexa_webhook(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    # 3. Request Signature Verification (Base)
+    # 3. Request Signature Verification
+    from app.core.service_registry import registry
+    config_svc = registry.get("config_service")
+    enforce = True
+    if config_svc and getattr(config_svc.settings, "alexa_validation_mode", "enforce") != "enforce":
+        enforce = False
+        
     raw_body = await request.body()
-    if not await verify_alexa_signature(request, raw_body, enforce=False):
+    if not await verify_alexa_signature(request, raw_body, enforce=enforce):
         logger.warning("Alexa request signature verification failed.")
         return JSONResponse(
             content=build_error_response("Invalid request signature."),

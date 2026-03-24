@@ -33,32 +33,29 @@ EchoWeave is a Home Assistant add-on that runs a backend bridge service between
 responds to Alexa skill requests with playable HTTPS stream URLs. The Alexa
 device then fetches and plays the stream itself.
 
-## What EchoWeave Is Not
+## Installation (GitHub Repository)
 
-- Not a replacement for Music Assistant's native player support.
-- Not a cloud-hosted shared Alexa skill.
-- Not a full-feature Alexa media controller (yet).
-- Not a Home Assistant custom integration (that comes later).
+EchoWeave is distributed as a custom Home Assistant add-on repository.
 
-## Current Phase: 1 (Add-on Backend)
+1. Navigate to your Home Assistant instance.
+2. Go to **Settings** > **Add-ons**.
+3. Click on the **Add-on Store** button.
+4. Click the three-dot menu (**⋮**) in the top right corner and select **Repositories**.
+5. Paste the GitHub URL: `https://github.com/srobysingh-bot/EchoWeave` and click **Add**.
+6. Close the dialog, scroll down, find **EchoWeave Home Assistant Add-ons**, and click **Install**.
 
-- ✅ Add-on scaffold & containerization
-- ✅ FastAPI app with admin UI pages
-- ✅ Music Assistant client with token auth
-- ✅ Alexa request/response flow definitions
-- ✅ Session/queue state management
-- ✅ Diagnostics & health checks
-- ⬜ Home Assistant custom integration (Phase 2)
-- ⬜ Full ASK automation (Phase 2+)
+## First-Run Setup
 
-## Requirements
+Once installed and started, click **Open Web UI** to configure the bridge:
 
-- Home Assistant OS or Supervised installation
-- Music Assistant server (reachable from HA host)
-- Music Assistant long-lived API token
-- Public HTTPS URL for Alexa webhook (reverse proxy)
-- Public HTTPS URL for audio streams
-- AWS developer account (for Alexa skill creation)
+1. **Music Assistant Settings:** Enter your MA Server URL (e.g. `http://homeassistant:8095`) and a Long-Lived Access Token.
+2. **Public Base URLs:** Enter your public HTTPS proxy URL for the Alexa Webhook (e.g., `https://echoweave.yourdomain.com`) and for audio streaming.
+3. Click **Validate and Save**. The setup wizard will ping the endpoints to ensure readiness.
+
+## Important Notes & Constraints
+
+*   **Experimental Status:** EchoWeave is currently an experimental standalone bridge backend.
+*   **Public HTTPS / SSL Required:** Alexa AudioPlayer skills **require** a valid, public HTTPS endpoint secured by a trusted SSL certificate. You *must* have a reverse proxy (like Nginx Proxy Manager or Cloudflare Tunnels) exposing the add-on's port to the public internet. Local IP addresses, unencrypted HTTP, and internal hostnames (like `.local`) will be rejected by Alexa and by EchoWeave's internal security validations.
 
 ## Reverse Proxy
 
