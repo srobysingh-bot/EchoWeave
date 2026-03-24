@@ -1,0 +1,47 @@
+# EchoWeave — English translations for add-on configuration UI
+configuration:
+  ma_base_url:
+    name: Music Assistant URL
+    description: >-
+      Base URL of your Music Assistant server (e.g. http://192.168.1.100:8095).
+  ma_token:
+    name: Music Assistant Token
+    description: >-
+      Long-lived API token for authenticating with Music Assistant.
+  public_base_url:
+    name: Public Base URL
+    description: >-
+      Public HTTPS URL where the Alexa webhook is reachable
+      (e.g. https://echoweave.example.com).
+  stream_base_url:
+    name: Stream Base URL
+    description: >-
+      Public HTTPS URL base for audio streams served to Alexa devices.
+  ui_username:
+    name: Admin Username
+    description: >-
+      Username for the EchoWeave admin UI.
+  ui_password:
+    name: Admin Password
+    description: >-
+      Password for the EchoWeave admin UI. Leave blank to disable auth.
+  aws_default_region:
+    name: AWS Region
+    description: >-
+      AWS region for Alexa Skill Kit operations (e.g. us-east-1).
+  locale:
+    name: Locale
+    description: >-
+      Locale for the Alexa skill interaction model (e.g. en-US).
+  log_level:
+    name: Log Level
+    description: >-
+      Logging verbosity. One of: trace, debug, info, warning, error, critical.
+  debug:
+    name: Debug Mode
+    description: >-
+      Enable debug mode for verbose logging and development features.
+  allow_insecure_local_test:
+    name: Allow Insecure Local Testing
+    description: >-
+      Allow HTTP (non-HTTPS) URLs for local testing only. Never enable in production.

@@ -1,0 +1,69 @@
+# EchoWeave — Home Assistant Add-on Configuration
+# https://developers.home-assistant.io/docs/add-ons/configuration
+
+name: EchoWeave
+slug: echoweave
+description: Alexa bridge backend for Music Assistant
+url: "https://github.com/srobysingh-bot/echoweave"
+version: "0.1.0"
+startup: services
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+# Ingress settings (for local admin UI through HA sidebar)
+ingress: true
+ingress_port: 5000
+ingress_entry: /
+panel_title: EchoWeave
+panel_icon: mdi:music-circle-outline
+
+# We do not need HA API access in Phase 1
+homeassistant_api: false
+host_network: false
+
+# Persistent storage mapping
+map:
+  - config:rw
+  - share:rw
+
+# Ports: exposed for local testing / reverse-proxy
+ports:
+  "5000/tcp": 5000
+ports_description:
+  "5000/tcp": "EchoWeave admin UI and Alexa webhook"
+
+# Add-on options with defaults
+options:
+  ma_base_url: ""
+  ma_token: ""
+  public_base_url: ""
+  stream_base_url: ""
+  ui_username: "admin"
+  ui_password: ""
+  aws_default_region: "us-east-1"
+  locale: "en-US"
+  log_level: "info"
+  debug: false
+  allow_insecure_local_test: false
+
+# Schema validation for options
+schema:
+  ma_base_url: url?
+  ma_token: password?
+  public_base_url: url?
+  stream_base_url: url?
+  ui_username: str?
+  ui_password: password?
+  aws_default_region: "str?"
+  locale: "match(^[a-z]{2}-[A-Z]{2}$)?"
+  log_level: "list(trace|debug|info|warning|error|critical)?"
+  debug: bool?
+  allow_insecure_local_test: bool?
+
+# Container image tag pattern
+image: "ghcr.io/srobysingh-bot/echoweave-{arch}"

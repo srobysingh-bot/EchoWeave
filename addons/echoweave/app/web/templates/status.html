@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Status — EchoWeave{% endblock %}
+{% block nav_status %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>System Status</h1>
+    <p class="subtitle">Last updated: {{ timestamp }}</p>
+</div>
+
+{% if errors %}
+<div class="alert alert-error">
+    <strong>⚠ Issues detected:</strong>
+    <ul>
+        {% for err in errors %}
+        <li>{{ err }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="status-grid">
+    {% for item in items %}
+    <div class="status-card status-{{ item.status }}">
+        <div class="status-indicator">
+            {% if item.status == 'ok' %}✅
+            {% elif item.status == 'warn' %}⚠️
+            {% elif item.status == 'fail' %}❌
+            {% else %}❓{% endif %}
+        </div>
+        <div class="status-body">
+            <h3>{{ item.label }}</h3>
+            <p>{{ item.detail }}</p>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Logs — EchoWeave{% endblock %}
+{% block nav_logs %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Application Logs</h1>
+    <p class="subtitle">{{ total }} entries buffered (showing last 200, newest first)</p>
+</div>
+
+<div class="log-controls">
+    <a href="/logs/download" class="btn btn-secondary" download="echoweave-logs.json">
+        ⬇ Download Logs
+    </a>
+</div>
+
+<div class="log-viewer">
+    <table class="log-table">
+        <thead>
+            <tr>
+                <th>Level</th>
+                <th>Logger</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr class="log-{{ entry.level | lower }}">
+                <td><span class="log-badge log-badge-{{ entry.level | lower }}">{{ entry.level }}</span></td>
+                <td class="log-logger">{{ entry.logger }}</td>
+                <td class="log-message">{{ entry.message }}</td>
+            </tr>
+            {% endfor %}
+            {% if not entries %}
+            <tr>
+                <td colspan="3" class="log-empty">No log entries yet.</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Configuration — EchoWeave{% endblock %}
+{% block nav_config %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Configuration</h1>
+    <p class="subtitle">Current settings (secrets are redacted).</p>
+</div>
+
+<div class="config-summary">
+    <table class="config-table">
+        <thead>
+            <tr>
+                <th>Setting</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for key, value in config.items() %}
+            <tr>
+                <td>{{ key }}</td>
+                <td>
+                    {% if value == '****' or (value is string and value.startswith('****')) %}
+                    <span class="redacted">{{ value }}</span>
+                    {% else %}
+                    {{ value }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="config-actions">
+    <h2>Update Token</h2>
+    <form id="token-form" onsubmit="replaceToken(event)">
+        <div class="form-group">
+            <label for="new_token">New Music Assistant Token</label>
+            <input type="password" id="new_token" name="ma_token"
+                   placeholder="Paste new long-lived token">
+        </div>
+        <button type="submit" class="btn btn-primary">Replace Token</button>
+    </form>
+    <div id="token-result" class="action-result" style="display:none;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function replaceToken(e) {
+    e.preventDefault();
+    const token = document.getElementById('new_token').value;
+    const result = document.getElementById('token-result');
+    result.style.display = 'block';
+    result.textContent = 'Replacing token…';
+    try {
+        const resp = await fetch('/config/replace-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ma_token: token }),
+        });
+        const data = await resp.json();
+        result.textContent = data.message;
+        result.className = 'action-result ' + (data.success ? 'success' : 'error');
+        if (data.success) document.getElementById('new_token').value = '';
+    } catch (e) {
+        result.textContent = 'Failed: ' + e.message;
+        result.className = 'action-result error';
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,1 @@
+"""EchoWeave core package."""

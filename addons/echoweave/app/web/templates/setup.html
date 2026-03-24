@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Setup — EchoWeave{% endblock %}
+{% block nav_setup %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Setup Wizard</h1>
+    <p class="subtitle">Complete these steps to get EchoWeave running.</p>
+</div>
+
+<div class="progress-bar-container">
+    <div class="progress-bar" style="width: {{ progress_pct }}%"></div>
+    <span class="progress-label">{{ complete }}/{{ total }} steps complete</span>
+</div>
+
+<div class="checklist">
+    {% for item in checklist %}
+    <div class="checklist-item {% if item.done %}done{% endif %}">
+        <div class="checklist-number">{{ item.step }}</div>
+        <div class="checklist-body">
+            <h3>{{ item.label }}</h3>
+            <p>{{ item.detail }}</p>
+        </div>
+        <div class="checklist-status">
+            {% if item.done %}✅{% else %}⬜{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="setup-actions">
+    <h2>Quick Actions</h2>
+    <div class="action-buttons">
+        <button class="btn btn-primary" onclick="validateMA()">
+            Validate Music Assistant
+        </button>
+        <button class="btn btn-secondary" onclick="validatePublic()">
+            Validate Public Endpoint
+        </button>
+    </div>
+    <div id="action-result" class="action-result" style="display:none;"></div>
+</div>
+
+<div class="setup-form">
+    <h2>Configuration</h2>
+    <form id="setup-form" onsubmit="saveConfig(event)">
+        <div class="form-group">
+            <label for="ma_base_url">Music Assistant URL</label>
+            <input type="url" id="ma_base_url" name="ma_base_url"
+                   placeholder="http://192.168.1.100:8095">
+        </div>
+        <div class="form-group">
+            <label for="ma_token">Music Assistant Token</label>
+            <input type="password" id="ma_token" name="ma_token"
+                   placeholder="Long-lived token">
+        </div>
+        <div class="form-group">
+            <label for="public_base_url">Public Base URL</label>
+            <input type="url" id="public_base_url" name="public_base_url"
+                   placeholder="https://echoweave.example.com">
+        </div>
+        <div class="form-group">
+            <label for="stream_base_url">Stream Base URL</label>
+            <input type="url" id="stream_base_url" name="stream_base_url"
+                   placeholder="https://stream.example.com">
+        </div>
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function validateMA() {
+    const result = document.getElementById('action-result');
+    result.style.display = 'block';
+    result.textContent = 'Validating Music Assistant…';
+    result.className = 'action-result info';
+    try {
+        const resp = await fetch('/setup/validate-ma', { method: 'POST' });
+        const data = await resp.json();
+        result.textContent = data.message;
+        result.className = 'action-result ' + (data.success ? 'success' : 'error');
+    } catch (e) {
+        result.textContent = 'Request failed: ' + e.message;
+        result.className = 'action-result error';
+    }
+}
+
+async function validatePublic() {
+    const result = document.getElementById('action-result');
+    result.style.display = 'block';
+    result.textContent = 'Validating public endpoint…';
+    result.className = 'action-result info';
+    try {
+        const resp = await fetch('/setup/validate-public', { method: 'POST' });
+        const data = await resp.json();
+        result.textContent = data.message;
+        result.className = 'action-result ' + (data.success ? 'success' : 'error');
+    } catch (e) {
+        result.textContent = 'Request failed: ' + e.message;
+        result.className = 'action-result error';
+    }
+}
+
+async function saveConfig(e) {
+    e.preventDefault();
+    const form = document.getElementById('setup-form');
+    const data = Object.fromEntries(new FormData(form));
+    const result = document.getElementById('action-result');
+    result.style.display = 'block';
+    result.textContent = 'Saving…';
+    try {
+        const resp = await fetch('/setup/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        const json = await resp.json();
+        result.textContent = json.message;
+        result.className = 'action-result ' + (json.success ? 'success' : 'error');
+    } catch (e) {
+        result.textContent = 'Save failed: ' + e.message;
+        result.className = 'action-result error';
+    }
+}
+</script>
+{% endblock %}

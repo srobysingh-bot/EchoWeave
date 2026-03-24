@@ -1,0 +1,268 @@
+/* ============================================================
+   EchoWeave — Admin UI Stylesheet
+   ============================================================ */
+
+:root {
+    --color-bg: #0f1419;
+    --color-surface: #1a1f2e;
+    --color-surface-alt: #232a3b;
+    --color-border: #2d3548;
+    --color-text: #e4e8f1;
+    --color-text-muted: #8892a4;
+    --color-primary: #6c5ce7;
+    --color-primary-hover: #7d6ff0;
+    --color-success: #00cec9;
+    --color-warning: #fdcb6e;
+    --color-error: #ff6b6b;
+    --color-info: #74b9ff;
+    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --radius: 10px;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: var(--font-family);
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* ---- Navigation ---- */
+.nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+}
+.nav-brand { display: flex; align-items: center; gap: 0.6rem; }
+.nav-logo { font-size: 1.5rem; }
+.nav-title { font-size: 1.2rem; font-weight: 700; color: var(--color-primary); }
+.nav-links { display: flex; gap: 0.5rem; }
+.nav-link {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+.nav-link:hover { color: var(--color-text); background: var(--color-surface-alt); }
+.nav-link.active { color: var(--color-primary); background: rgba(108, 92, 231, 0.15); }
+
+/* ---- Container ---- */
+.container { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
+
+/* ---- Page Header ---- */
+.page-header { margin-bottom: 2rem; }
+.page-header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.3rem; }
+.subtitle { color: var(--color-text-muted); font-size: 0.9rem; }
+
+/* ---- Status Grid ---- */
+.status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.status-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.2rem;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--color-border);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.status-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.status-ok { border-left-color: var(--color-success); }
+.status-warn { border-left-color: var(--color-warning); }
+.status-fail { border-left-color: var(--color-error); }
+.status-unknown { border-left-color: var(--color-text-muted); }
+.status-indicator { font-size: 1.4rem; flex-shrink: 0; }
+.status-body h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.2rem; }
+.status-body p { font-size: 0.82rem; color: var(--color-text-muted); }
+
+/* ---- Alerts ---- */
+.alert {
+    padding: 1rem 1.2rem;
+    border-radius: var(--radius);
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+}
+.alert-error { background: rgba(255, 107, 107, 0.12); border: 1px solid rgba(255, 107, 107, 0.3); }
+.alert-error ul { margin-top: 0.5rem; padding-left: 1.2rem; }
+
+/* ---- Progress Bar ---- */
+.progress-bar-container {
+    position: relative;
+    background: var(--color-surface);
+    border-radius: 20px;
+    height: 28px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-success));
+    border-radius: 20px;
+    transition: width 0.5s ease;
+}
+.progress-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+/* ---- Checklist ---- */
+.checklist { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 2rem; }
+.checklist-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    transition: background 0.15s;
+}
+.checklist-item.done { opacity: 0.7; }
+.checklist-number {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: var(--color-surface-alt);
+    font-weight: 700; font-size: 0.85rem;
+    color: var(--color-primary);
+    flex-shrink: 0;
+}
+.checklist-body { flex: 1; }
+.checklist-body h3 { font-size: 0.95rem; font-weight: 600; }
+.checklist-body p { font-size: 0.82rem; color: var(--color-text-muted); }
+.checklist-status { font-size: 1.2rem; }
+
+/* ---- Buttons ---- */
+.btn {
+    display: inline-block;
+    padding: 0.6rem 1.4rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+.btn-primary { background: var(--color-primary); color: #fff; }
+.btn-primary:hover { background: var(--color-primary-hover); transform: translateY(-1px); }
+.btn-secondary { background: var(--color-surface-alt); color: var(--color-text); border: 1px solid var(--color-border); }
+.btn-secondary:hover { background: var(--color-border); }
+
+/* ---- Forms ---- */
+.form-group { margin-bottom: 1.2rem; }
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-bottom: 0.4rem;
+}
+.form-group input {
+    width: 100%;
+    padding: 0.7rem 1rem;
+    background: var(--color-surface-alt);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: border-color 0.2s;
+}
+.form-group input:focus { outline: none; border-color: var(--color-primary); }
+
+/* ---- Action Results ---- */
+.action-result {
+    margin-top: 1rem;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+}
+.action-result.success { background: rgba(0, 206, 201, 0.12); color: var(--color-success); }
+.action-result.error { background: rgba(255, 107, 107, 0.12); color: var(--color-error); }
+.action-result.info { background: rgba(116, 185, 255, 0.12); color: var(--color-info); }
+
+.setup-actions, .setup-form, .config-actions { margin-top: 2rem; }
+.setup-actions h2, .setup-form h2, .config-actions h2 {
+    font-size: 1.2rem; margin-bottom: 1rem;
+}
+.action-buttons { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+/* ---- Tables ---- */
+.config-table, .log-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--color-surface);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.config-table th, .config-table td,
+.log-table th, .log-table td {
+    padding: 0.7rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.88rem;
+}
+.config-table th, .log-table th {
+    background: var(--color-surface-alt);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.redacted { color: var(--color-text-muted); font-style: italic; }
+
+/* ---- Log Viewer ---- */
+.log-controls { margin-bottom: 1rem; }
+.log-viewer { overflow-x: auto; }
+.log-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.log-badge-debug { background: rgba(116, 185, 255, 0.2); color: var(--color-info); }
+.log-badge-info { background: rgba(0, 206, 201, 0.2); color: var(--color-success); }
+.log-badge-warning { background: rgba(253, 203, 110, 0.2); color: var(--color-warning); }
+.log-badge-error { background: rgba(255, 107, 107, 0.2); color: var(--color-error); }
+.log-badge-critical { background: rgba(255, 107, 107, 0.4); color: #fff; }
+.log-logger { color: var(--color-text-muted); font-size: 0.8rem; }
+.log-message { font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.82rem; }
+.log-empty { text-align: center; color: var(--color-text-muted); padding: 2rem; }
+
+/* ---- Footer ---- */
+.footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+    border-top: 1px solid var(--color-border);
+    margin-top: 3rem;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+    .nav { flex-direction: column; gap: 0.75rem; }
+    .status-grid { grid-template-columns: 1fr; }
+    .action-buttons { flex-direction: column; }
+}
