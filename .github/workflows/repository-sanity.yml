@@ -1,0 +1,91 @@
+name: Repository Sanity
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install yamllint pyyaml
+
+      - name: YAML lint
+        run: |
+          yamllint repository.yaml
+          yamllint addons/echoweave/config.yaml
+          yamllint addons/echoweave/build.yaml
+
+      - name: YAML parse validation
+        run: |
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+
+          files = [
+              Path("repository.yaml"),
+              Path("addons/echoweave/config.yaml"),
+              Path("addons/echoweave/build.yaml"),
+          ]
+
+          for file in files:
+              with file.open("r", encoding="utf-8") as f:
+                  data = yaml.safe_load(f)
+              if data is None:
+                  raise SystemExit(f"{file} parsed as null")
+              print(f"OK: parsed {file}")
+          PY
+
+      - name: Shell syntax validation
+        run: |
+          bash -n addons/echoweave/run.sh
+
+      - name: Multiline and newline sanity checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          key_files = [
+              Path("repository.yaml"),
+              Path("addons/echoweave/config.yaml"),
+              Path("addons/echoweave/build.yaml"),
+              Path("addons/echoweave/requirements.txt"),
+              Path("addons/echoweave/run.sh"),
+              Path("README.md"),
+              Path("addons/echoweave/README.md"),
+          ]
+
+          for file in key_files:
+              raw = file.read_text(encoding="utf-8")
+              lines = raw.splitlines()
+              if len(lines) <= 1:
+                  raise SystemExit(f"{file} must contain multiple lines")
+              if not raw.endswith("\n"):
+                  raise SystemExit(f"{file} must end with a newline")
+
+          req_lines = [
+              line.strip()
+              for line in Path("addons/echoweave/requirements.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          if len(req_lines) <= 1:
+              raise SystemExit("requirements.txt must contain one dependency per line")
+
+          print("OK: multiline and newline checks passed")
+          PY
+
+      - name: Optional Docker build check
+        if: ${{ false }}
+        run: |
+          docker build -f addons/echoweave/Dockerfile addons/echoweave
