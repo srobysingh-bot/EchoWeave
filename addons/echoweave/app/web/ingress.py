@@ -14,6 +14,12 @@ def get_ingress_base_path(request: Request) -> str:
     3) empty string for direct/local mode
     """
     candidate = request.headers.get("X-Ingress-Path") or request.scope.get("root_path") or ""
+    if not candidate:
+        # Fallback for HA instances that proxy /app/<slug>/... but do not pass X-Ingress-Path.
+        path = str(request.url.path or "")
+        parts = [p for p in path.split("/") if p]
+        if len(parts) >= 2 and parts[0] == "app":
+            candidate = f"/app/{parts[1]}"
     candidate = str(candidate).strip()
     if not candidate:
         return ""

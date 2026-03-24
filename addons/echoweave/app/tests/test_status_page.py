@@ -68,7 +68,7 @@ def test_debug_routes_contains_expected_paths():
     assert resp.status_code == 200
 
     payload = resp.json()
-    assert payload["version"] == "0.1.5"
+    assert payload["version"] == "0.1.6"
     assert "effective_base_path" in payload
     paths = {row["path"] for row in payload.get("routes", [])}
     assert "/" in paths
@@ -99,6 +99,22 @@ def test_debug_ping_ui_returns_html():
     assert "EchoWeave UI OK" in resp.text
 
 
-def test_runtime_version_is_015():
-    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.5."""
-    assert APP_VERSION == "0.1.5"
+def test_runtime_version_is_016():
+    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.6."""
+    assert APP_VERSION == "0.1.6"
+
+
+def test_legacy_ingress_path_setup_returns_html():
+    """GET /app/<slug>/setup should work for ingress proxies without header injection."""
+    with TestClient(app) as client:
+        resp = client.get("/app/06cc5e17_echoweave/setup")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+
+
+def test_legacy_ingress_path_ping_ui_returns_html():
+    """GET /app/<slug>/debug/ping-ui should return a simple HTML page."""
+    with TestClient(app) as client:
+        resp = client.get("/app/06cc5e17_echoweave/debug/ping-ui")
+    assert resp.status_code == 200
+    assert "EchoWeave UI OK" in resp.text

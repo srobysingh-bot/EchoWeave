@@ -7,11 +7,11 @@ from fastapi import Request
 from app.web.ingress import build_base_url, get_ingress_base_path
 
 
-def _make_request(headers: dict[str, str] | None = None, root_path: str = "") -> Request:
+def _make_request(headers: dict[str, str] | None = None, root_path: str = "", path: str = "/") -> Request:
     scope = {
         "type": "http",
         "method": "GET",
-        "path": "/",
+        "path": path,
         "headers": [(k.lower().encode("utf-8"), v.encode("utf-8")) for k, v in (headers or {}).items()],
         "root_path": root_path,
     }
@@ -34,3 +34,9 @@ def test_base_path_empty_for_direct_mode() -> None:
     request = _make_request()
     assert get_ingress_base_path(request) == ""
     assert build_base_url(request, "/setup") == "/setup"
+
+
+def test_base_path_falls_back_from_legacy_ingress_path() -> None:
+    request = _make_request(path="/app/06cc5e17_echoweave/setup")
+    assert get_ingress_base_path(request) == "/app/06cc5e17_echoweave"
+    assert build_base_url(request, "/status") == "/app/06cc5e17_echoweave/status"

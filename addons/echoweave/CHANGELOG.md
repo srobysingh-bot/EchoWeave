@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] - 2026-03-24
+
+### Fixed
+
+- Add ingress compatibility fallback for HA setups forwarding /app/<slug>/... without X-Ingress-Path.
+- Keep debug endpoints available under both normal and /app/<slug> ingress-prefixed paths.
+- Sync runtime and add-on metadata versions to 0.1.6.
+
 ## [0.1.5] - 2026-03-24
 
 ### Fixed

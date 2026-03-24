@@ -175,6 +175,15 @@ def create_app() -> FastAPI:
     _app.include_router(config_router)
     _app.include_router(alexa_router)
 
+    # Compatibility: some HA ingress setups forward /app/<slug>/... directly.
+    # Register web routes under that prefix as a fallback while keeping the
+    # canonical app routes at /setup, /status, /logs, /config, /health.
+    _app.include_router(health_router, prefix="/app/{addon_slug}")
+    _app.include_router(status_router, prefix="/app/{addon_slug}")
+    _app.include_router(setup_router, prefix="/app/{addon_slug}")
+    _app.include_router(logs_router, prefix="/app/{addon_slug}")
+    _app.include_router(config_router, prefix="/app/{addon_slug}")
+
     # Static files
     _app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -205,7 +214,7 @@ def create_app() -> FastAPI:
                 return await call_next(request)
 
             # Home Assistant ingress already authenticates users.
-            if request.headers.get("X-Ingress-Path"):
+            if request.headers.get("X-Ingress-Path") or request.url.path.startswith("/app/"):
                 return await call_next(request)
             
             # Fetch current settings from registry
@@ -239,6 +248,7 @@ def create_app() -> FastAPI:
         return RedirectResponse(url=build_base_url(request, "/setup"))
 
     @_app.get("/debug/routes", include_in_schema=False)
+    @_app.get("/app/{addon_slug}/debug/routes", include_in_schema=False)
     async def debug_routes(request: Request) -> JSONResponse:
         return JSONResponse(
             content={
@@ -252,6 +262,7 @@ def create_app() -> FastAPI:
         )
 
     @_app.get("/debug/ping-ui", include_in_schema=False)
+    @_app.get("/app/{addon_slug}/debug/ping-ui", include_in_schema=False)
     async def debug_ping_ui() -> HTMLResponse:
         return HTMLResponse("<h1>EchoWeave UI OK</h1>")
 
