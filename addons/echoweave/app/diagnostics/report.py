@@ -36,7 +36,7 @@ class DiagnosticsReporter:
         if self._health and self._health.last_result:
             bundle["health"] = {
                 "overall": self._health.overall_status,
-                "checks": [c.model_dump() for c in self._health.last_result.checks],
+                "checks": [c.model_dump(mode="json") for c in self._health.last_result.checks],
             }
 
         # Last 100 log entries

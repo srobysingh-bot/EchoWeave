@@ -126,9 +126,58 @@ async def _handle_playback_nearly_finished(body: dict[str, Any]) -> dict[str, An
         last_event_type="PlaybackNearlyFinished",
     )
 
-    # TODO: Fetch next track from MA via QueueMapper and return enqueue directive.
-    # For now, return an empty response (no next track).
-    return build_response()
+    token = ctx["token"]
+    if not token.startswith("ma:"):
+        logger.debug("PlaybackNearlyFinished: Token does not start with 'ma:', ignoring.")
+        return build_response()
+
+    parts = token.split(":")
+    if len(parts) < 3:
+        logger.warning("PlaybackNearlyFinished: Malformed token '%s'", token)
+        return build_response()
+
+    queue_id = parts[1]
+
+    from app.core.service_registry import registry
+    from app.ma.queue_mapper import QueueMapper
+    from app.ma.stream_resolver import StreamResolver
+    from app.alexa.directives import enqueue_directive
+
+    client = registry.get("ma_client")
+    cfg = registry.get("config_service")
+    if not client or not cfg:
+        logger.error("PlaybackNearlyFinished: Missing dependencies in registry!")
+        return build_response()
+
+    resolver = StreamResolver(cfg.settings.stream_base_url, cfg.settings.allow_insecure_local_test)
+    mapper = QueueMapper(client, resolver)
+
+    try:
+        next_track = await mapper.get_next_track_for_alexa(queue_id)
+    except Exception as exc:
+        logger.exception("PlaybackNearlyFinished: Failed to fetch next track.")
+        return build_response()
+
+    if not next_track:
+        logger.info("PlaybackNearlyFinished: No next track in queue %s", queue_id)
+        store.update_session(
+            device_id=ctx["device_id"],
+            expected_next_token="",
+        )
+        return build_response()
+
+    logger.info("PlaybackNearlyFinished: Enqueueing next track %s", next_track["token"])
+    store.update_session(
+        device_id=ctx["device_id"],
+        expected_next_token=next_track["token"],
+    )
+
+    directive = enqueue_directive(
+        url=next_track["url"],
+        token=next_track["token"],
+        expected_previous_token=token,
+    )
+    return build_response(directives=[directive])
 
 
 async def _handle_unknown_event(body: dict[str, Any]) -> dict[str, Any]:

@@ -37,9 +37,11 @@ class BufferedLogHandler(logging.Handler):
 
 def install_log_buffer() -> None:
     """Attach the ``BufferedLogHandler`` to the root logger."""
+    from app.logging_config import SecretRedactingFilter
     handler = BufferedLogHandler()
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(asctime)s"))
+    handler.addFilter(SecretRedactingFilter())
     logging.getLogger().addHandler(handler)
 
 
@@ -61,11 +63,19 @@ async def logs_page(request: Request) -> HTMLResponse:
 
 @router.get("/download")
 async def download_logs() -> JSONResponse:
-    """Return logs as JSON for diagnostics bundle download.
+    """Return logs as JSON for diagnostics bundle download."""
+    from app.core.service_registry import registry
+    from app.diagnostics.report import DiagnosticsReporter
 
-    TODO: Include redacted config snapshot and health check results.
-    """
-    return JSONResponse(content={
-        "logs": _LOG_BUFFER[-500:],
-        "note": "Secrets are redacted from log messages.",
-    })
+    # Build the full diagnostics bundle instead of just raw logs
+    reporter = DiagnosticsReporter(
+        config_service=registry.get("config_service"),
+        health_service=registry.get("health"),
+        log_buffer=_LOG_BUFFER,
+    )
+    bundle = await reporter.generate_bundle()
+    
+    return JSONResponse(
+        content=bundle,
+        headers={"Content-Disposition": 'attachment; filename="echoweave_diagnostics.json"'}
+    )

@@ -19,22 +19,35 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 @router.get("/status", response_class=HTMLResponse)
 async def status_page(request: Request) -> HTMLResponse:
-    """Render the status dashboard with green/yellow/red indicators."""
+    """Render the status dashboard with live health indicators."""
+    from app.dependencies import get_health_service
+    health_svc = get_health_service()
 
-    # Build status items — currently static; will be replaced with live
-    # checks once the service registry and diagnostics layer are wired up.
     items: list[dict[str, Any]] = [
-        {"label": "Add-on Service", "status": "ok", "detail": f"v{APP_VERSION} running"},
-        {"label": "Music Assistant Connection", "status": "unknown", "detail": "Not checked yet"},
-        {"label": "Music Assistant Auth", "status": "unknown", "detail": "Not checked yet"},
-        {"label": "Public Endpoint", "status": "unknown", "detail": "Not configured"},
-        {"label": "Stream Endpoint", "status": "unknown", "detail": "Not configured"},
-        {"label": "Alexa Skill", "status": "unknown", "detail": "Not configured"},
-        {"label": "Locale / Region", "status": "ok", "detail": "en-US"},
-        {"label": "Last Alexa Callback", "status": "unknown", "detail": "None received"},
-        {"label": "Last Stream Resolution", "status": "unknown", "detail": "None attempted"},
+        {"label": "Add-on Service", "status": "ok", "detail": f"v{APP_VERSION} running"}
     ]
 
+    if health_svc:
+        result = await health_svc.run_all()
+        
+        # Display name mapping
+        key_map = {
+            "ma_reachable": "Music Assistant Connection",
+            "ma_auth_valid": "Music Assistant Auth",
+            "stream_url_valid": "Stream Endpoint",
+            "public_url_reachable": "Public Endpoint",
+            "ask_configured": "ASK Credentials",
+            "skill_exists": "Alexa Skill",
+        }
+        
+        for c in result.checks:
+            items.append({
+                "label": key_map.get(c.key, c.key),
+                "status": c.status,
+                "detail": c.message
+            })
+
+    # Find failures for top alert UI
     errors: list[str] = [
         item["detail"] for item in items if item["status"] == "fail"
     ]

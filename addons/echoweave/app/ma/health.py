@@ -44,13 +44,21 @@ class MAHealthChecker:
             }
 
     @staticmethod
-    async def check_stream_url(stream_base_url: str) -> dict[str, Any]:
-        """Verify that the stream base URL is reachable (HEAD request)."""
+    async def check_stream_url(stream_base_url: str, allow_insecure: bool = False) -> dict[str, Any]:
+        """Verify that the stream base URL is reachable and secure."""
+        from app.ma.stream_resolver import is_valid_alexa_stream_url
         if not stream_base_url:
             return {
                 "key": "stream_url_valid",
                 "status": "warn",
                 "message": "Stream base URL not configured.",
+            }
+            
+        if not is_valid_alexa_stream_url(stream_base_url, allow_insecure):
+            return {
+                "key": "stream_url_valid",
+                "status": "fail",
+                "message": "Stream URL is insecure (must be public HTTPS).",
             }
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -68,11 +76,11 @@ class MAHealthChecker:
                 "message": f"Stream URL unreachable: {exc}",
             }
 
-    async def run_all(self, stream_base_url: str = "") -> list[dict[str, Any]]:
+    async def run_all(self, stream_base_url: str = "", allow_insecure: bool = False) -> list[dict[str, Any]]:
         """Run all MA-related health checks and return results."""
         results = [
             await self.check_reachable(),
             await self.check_auth(),
-            await self.check_stream_url(stream_base_url),
+            await self.check_stream_url(stream_base_url, allow_insecure),
         ]
         return results

@@ -11,18 +11,41 @@ This module builds such URLs from the configured ``stream_base_url``.
 from __future__ import annotations
 
 import logging
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urlparse, urljoin
+import ipaddress
 
 from app.ma.models import MAQueueItem
+from app.core.exceptions import StreamResolutionError
 
 logger = logging.getLogger(__name__)
 
+def is_valid_alexa_stream_url(url: str, allow_insecure: bool) -> bool:
+    """Return True if the URL is public HTTPS, or if insecure overrides are allowed."""
+    try:
+        parsed = urlparse(url)
+        if not allow_insecure and parsed.scheme != "https":
+            return False
+            
+        hostname = parsed.hostname or ""
+        if hostname.lower() in ("localhost",):
+            return allow_insecure
+            
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback:
+                return allow_insecure
+        except ValueError:
+            pass
+        return True
+    except Exception:
+        return False
 
 class StreamResolver:
     """Build externally reachable stream URLs from ``stream_base_url``."""
 
-    def __init__(self, stream_base_url: str) -> None:
+    def __init__(self, stream_base_url: str, allow_insecure: bool = False) -> None:
         self._base = stream_base_url.rstrip("/") if stream_base_url else ""
+        self._allow_insecure = allow_insecure
 
     def resolve(self, item: MAQueueItem) -> str:
         """Return a public HTTPS URL that Alexa can use to stream this item.
@@ -31,10 +54,9 @@ class StreamResolver:
         that URL is returned directly.  Otherwise, the URL is constructed from
         ``stream_base_url`` plus the item's queue/item identifiers.
         """
-        # If MA already provides an externally-reachable URL, prefer it.
         if item.streamdetails and item.streamdetails.url:
             url = item.streamdetails.url
-            if url.startswith("https://"):
+            if is_valid_alexa_stream_url(url, self._allow_insecure):
                 logger.debug("Using MA-provided stream URL for item %s", item.queue_item_id)
                 return url
 
@@ -42,12 +64,14 @@ class StreamResolver:
             logger.error(
                 "stream_base_url is not configured — cannot build a public stream URL."
             )
-            # Fall back to the raw URI so debugging is possible; Alexa will
-            # likely reject this.
-            return item.uri or ""
+            # Cannot fall back, Alexa requires a valid URL.
+            raise StreamResolutionError("stream_base_url is missing.")
 
-        # Build a proxy path:  {stream_base_url}/stream/{queue_id}/{item_id}
         path = f"/stream/{quote(item.queue_id, safe='')}/{quote(item.queue_item_id, safe='')}"
         public_url = urljoin(self._base + "/", path.lstrip("/"))
+        
+        if not is_valid_alexa_stream_url(public_url, self._allow_insecure):
+            raise StreamResolutionError(f"Resolved URL '{public_url}' fails Alexa public HTTPS policy.")
+
         logger.debug("Resolved stream URL: %s", public_url)
         return public_url

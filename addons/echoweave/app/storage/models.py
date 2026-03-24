@@ -58,6 +58,7 @@ class SkillMetadata(BaseModel):
 class PersistedConfig(BaseModel):
     """User-facing config snapshot saved to disk."""
     ma_base_url: str = ""
+    ma_token: str = ""
     public_base_url: str = ""
     stream_base_url: str = ""
     locale: str = "en-US"

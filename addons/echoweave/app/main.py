@@ -50,6 +50,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.storage.persistence import PersistenceService
     persistence = PersistenceService(settings.data_dir)
     registry.register("persistence", persistence)
+    
+    # Overlay saved config
+    persisted_config = persistence.load_config()
+    if persisted_config:
+        settings.apply_persisted(persisted_config)
 
     # MA client
     from app.ma.client import MusicAssistantClient
@@ -66,7 +71,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Health service
     from app.diagnostics.health import HealthService
+    from app.diagnostics.checks import check_public_url, check_ask_configured, check_skill_exists
+    from app.ma.health import MAHealthChecker
+
     health_svc = HealthService()
+
+    async def ma_checks():
+        client = registry.get("ma_client")
+        if client:
+            checker = MAHealthChecker(client)
+            return await checker.run_all(
+                settings.stream_base_url, 
+                settings.allow_insecure_local_test
+            )
+        return [{"key": "ma_reachable", "status": "fail", "message": "MA client not registered."}]
+
+    async def public_check():
+        return await check_public_url(settings.public_base_url)
+
+    async def ask_check():
+        return await check_ask_configured(settings.data_dir)
+
+    async def skill_check():
+        return await check_skill_exists(persistence)
+
+    health_svc.register_check(ma_checks)
+    health_svc.register_check(public_check)
+    health_svc.register_check(ask_check)
+    health_svc.register_check(skill_check)
+
     registry.register("health", health_svc)
 
     # Config service
@@ -108,6 +141,43 @@ def create_app() -> FastAPI:
 
     # Static files
     _app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
+
+    # Basic Auth Middleware
+    import base64
+    import secrets
+    from fastapi.responses import Response
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class AdminAuthMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            # Exempt paths
+            if request.url.path.startswith(("/alexa", "/health", "/static")):
+                return await call_next(request)
+            
+            # Fetch current settings from registry
+            config_svc = registry.get("config_service")
+            if not config_svc or not config_svc.settings.ui_auth_enabled:
+                return await call_next(request)
+                
+            settings = config_svc.settings
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+                    username, _, password = decoded.partition(":")
+                    if secrets.compare_digest(username, settings.ui_username) and \
+                       secrets.compare_digest(password, settings.ui_password):
+                        return await call_next(request)
+                except Exception:
+                    pass
+                    
+            return Response(
+                content="Unauthorized", 
+                status_code=401, 
+                headers={"WWW-Authenticate": 'Basic realm="EchoWeave Admin"'}
+            )
+
+    _app.add_middleware(AdminAuthMiddleware)
 
     # Root redirect
     @_app.get("/")

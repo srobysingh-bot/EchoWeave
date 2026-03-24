@@ -118,6 +118,17 @@ class Settings(BaseSettings):
     def data_path(self) -> Path:
         return Path(self.data_dir)
 
+    def apply_persisted(self, persisted: Any) -> None:
+        """Overlay values from a PersistedConfig if they are set (non-empty strings)."""
+        if not persisted:
+            return
+        if persisted.ma_base_url: self.ma_base_url = persisted.ma_base_url
+        if getattr(persisted, "ma_token", ""): self.ma_token = persisted.ma_token
+        if persisted.public_base_url: self.public_base_url = persisted.public_base_url
+        if persisted.stream_base_url: self.stream_base_url = persisted.stream_base_url
+        if persisted.locale: self.locale = persisted.locale
+        if persisted.aws_default_region: self.aws_default_region = persisted.aws_default_region
+
 
 def load_settings() -> Settings:
     """Build a ``Settings`` instance merging options.json and env vars."""

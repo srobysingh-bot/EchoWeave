@@ -59,3 +59,37 @@ def extract_user_id(body: dict[str, Any]) -> str:
         .get("user", {})
         .get("userId", "unknown")
     )
+
+
+def verify_alexa_timestamp(body: dict[str, Any]) -> bool:
+    """Ensure the request timestamp is within 150 seconds of current time."""
+    from datetime import datetime, timezone
+    timestamp_str = body.get("request", {}).get("timestamp")
+    if not timestamp_str:
+        return False
+    try:
+        clean_ts = timestamp_str.replace("Z", "+00:00")
+        ts = datetime.fromisoformat(clean_ts)
+        # If naive (which it shouldn't be with +00:00), force it to UTC for comparison
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        delta = abs((now - ts).total_seconds())
+        return delta <= 150
+    except Exception:
+        return False
+
+
+async def verify_alexa_signature(request: Any, raw_body: bytes, enforce: bool = False) -> bool:
+    """Base framework for verifying the SignatureCertChainUrl and Signature.
+    
+    TODO: Implement full RSA validation via the specified public certificate.
+    """
+    cert_url = request.headers.get("SignatureCertChainUrl")
+    signature = request.headers.get("Signature")
+    
+    if not cert_url or not signature:
+        return not enforce
+
+    # Full cert validation goes here in Phase 2
+    return True

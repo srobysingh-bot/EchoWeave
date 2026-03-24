@@ -28,10 +28,18 @@ async def health_check() -> JSONResponse:
         }
     ]
 
-    # TODO: Pull additional checks from DiagnosticsHealthService once
-    # the service registry is wired into this route.
+    from app.dependencies import get_health_service
+    health_svc = get_health_service()
+    
+    if health_svc:
+        result = await health_svc.run_all()
+        checks.extend([c.model_dump(mode="json") for c in result.checks])
 
-    overall = "ok" if all(c["status"] == "ok" for c in checks) else "degraded"
+    overall = "ok"
+    if any(c["status"] == "warn" for c in checks):
+        overall = "degraded"
+    if any(c["status"] == "fail" for c in checks):
+        overall = "fail"
 
     return JSONResponse(
         content={
@@ -39,5 +47,5 @@ async def health_check() -> JSONResponse:
             "version": APP_VERSION,
             "checks": checks,
         },
-        status_code=200 if overall == "ok" else 503,
+        status_code=200 if overall in ("ok", "degraded") else 503,
     )

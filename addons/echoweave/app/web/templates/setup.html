@@ -47,23 +47,41 @@
         <div class="form-group">
             <label for="ma_base_url">Music Assistant URL</label>
             <input type="url" id="ma_base_url" name="ma_base_url"
+                   value="{{ settings.ma_base_url }}"
                    placeholder="http://192.168.1.100:8095">
         </div>
         <div class="form-group">
             <label for="ma_token">Music Assistant Token</label>
             <input type="password" id="ma_token" name="ma_token"
+                   value="{{ settings.ma_token }}"
                    placeholder="Long-lived token">
         </div>
         <div class="form-group">
             <label for="public_base_url">Public Base URL</label>
             <input type="url" id="public_base_url" name="public_base_url"
+                   value="{{ settings.public_base_url }}"
                    placeholder="https://echoweave.example.com">
         </div>
         <div class="form-group">
             <label for="stream_base_url">Stream Base URL</label>
             <input type="url" id="stream_base_url" name="stream_base_url"
+                   value="{{ settings.stream_base_url }}"
                    placeholder="https://stream.example.com">
         </div>
+        
+        <div class="form-group">
+            <label for="locale">Alexa Language / Locale</label>
+            <input type="text" id="locale" name="locale"
+                   value="{{ settings.locale }}"
+                   placeholder="en-US">
+        </div>
+        <div class="form-group">
+            <label for="aws_default_region">AWS Region</label>
+            <input type="text" id="aws_default_region" name="aws_default_region"
+                   value="{{ settings.aws_default_region }}"
+                   placeholder="us-east-1">
+        </div>
+        
         <button type="submit" class="btn btn-primary">Save Configuration</button>
     </form>
 </div>
@@ -72,15 +90,30 @@
 {% block scripts %}
 <script>
 async function validateMA() {
+    const maUrl = document.getElementById('ma_base_url').value;
+    const maToken = document.getElementById('ma_token').value;
+    
+    if (!maUrl || !maToken) {
+        alert("Please fill in Music Assistant URL and Token first.");
+        return;
+    }
+
     const result = document.getElementById('action-result');
     result.style.display = 'block';
     result.textContent = 'Validating Music Assistant…';
     result.className = 'action-result info';
     try {
-        const resp = await fetch('/setup/validate-ma', { method: 'POST' });
+        const resp = await fetch('/setup/validate-ma', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ma_base_url: maUrl, ma_token: maToken })
+        });
         const data = await resp.json();
         result.textContent = data.message;
         result.className = 'action-result ' + (data.success ? 'success' : 'error');
+        if (data.success) {
+            setTimeout(() => window.location.reload(), 2000);
+        }
     } catch (e) {
         result.textContent = 'Request failed: ' + e.message;
         result.className = 'action-result error';
@@ -88,12 +121,23 @@ async function validateMA() {
 }
 
 async function validatePublic() {
+    const pubUrl = document.getElementById('public_base_url').value;
+    
+    if (!pubUrl) {
+        alert("Please fill in Public Base URL first.");
+        return;
+    }
+
     const result = document.getElementById('action-result');
     result.style.display = 'block';
     result.textContent = 'Validating public endpoint…';
     result.className = 'action-result info';
     try {
-        const resp = await fetch('/setup/validate-public', { method: 'POST' });
+        const resp = await fetch('/setup/validate-public', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_base_url: pubUrl })
+        });
         const data = await resp.json();
         result.textContent = data.message;
         result.className = 'action-result ' + (data.success ? 'success' : 'error');
@@ -119,6 +163,9 @@ async function saveConfig(e) {
         const json = await resp.json();
         result.textContent = json.message;
         result.className = 'action-result ' + (json.success ? 'success' : 'error');
+        if (json.success) {
+            setTimeout(() => window.location.reload(), 2000);
+        }
     } catch (e) {
         result.textContent = 'Save failed: ' + e.message;
         result.className = 'action-result error';

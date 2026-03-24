@@ -43,14 +43,31 @@ async def alexa_webhook(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    # TODO: Add Alexa request signature verification for production hardening.
-    # See: https://developer.amazon.com/docs/custom-skills/host-a-custom-skill-as-a-web-service.html
-
+    from app.alexa.validators import validate_alexa_request, verify_alexa_timestamp, verify_alexa_signature
+    
+    # 1. Base JSON structure validation
     validation_error = validate_alexa_request(body)
     if validation_error:
         logger.warning("Alexa request validation failed: %s", validation_error)
         return JSONResponse(
             content=build_error_response(validation_error),
+            status_code=400,
+        )
+
+    # 2. Timestamp freshness
+    if not verify_alexa_timestamp(body):
+        logger.warning("Alexa request timestamp is missing or too old.")
+        return JSONResponse(
+            content=build_error_response("Request timestamp is too old."),
+            status_code=400,
+        )
+
+    # 3. Request Signature Verification (Base)
+    raw_body = await request.body()
+    if not await verify_alexa_signature(request, raw_body, enforce=False):
+        logger.warning("Alexa request signature verification failed.")
+        return JSONResponse(
+            content=build_error_response("Invalid request signature."),
             status_code=400,
         )
 
