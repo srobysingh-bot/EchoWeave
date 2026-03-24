@@ -5,6 +5,12 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-03-24
+
+### Fixed
+
+- Fix persistent s6-envdir startup crash by explicitly running Home Assistant init via ENTRYPOINT ["/init"] and keeping CMD ["/run.sh"].
+
 ## [0.1.2] - 2026-03-24
 
 ### Fixed

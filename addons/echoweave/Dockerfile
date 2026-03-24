@@ -19,4 +19,5 @@ RUN chmod +x /run.sh
 
 VOLUME ["/data"]
 
+ENTRYPOINT ["/init"]
 CMD ["/run.sh"]
