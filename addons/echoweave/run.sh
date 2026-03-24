@@ -31,7 +31,7 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.1.1 starting"
+bashio::log.info " EchoWeave v0.1.2 starting"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " MA URL:        ${ECHOWEAVE_MA_BASE_URL:-<not set>}"
 bashio::log.info " Public URL:    ${ECHOWEAVE_PUBLIC_BASE_URL:-<not set>}"
