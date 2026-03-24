@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}EchoWeave{% endblock %}</title>
     <meta name="description" content="EchoWeave — Alexa bridge for Music Assistant">
-    <link rel="stylesheet" href="/static/app.css">
+    {% set bp = base_path | default("") %}
+    <link rel="stylesheet" href="{{ bp }}/static/app.css">
 </head>
 <body>
     <nav class="nav">
@@ -14,10 +15,10 @@
             <span class="nav-title">EchoWeave</span>
         </div>
         <div class="nav-links">
-            <a href="/status" class="nav-link {% block nav_status %}{% endblock %}">Status</a>
-            <a href="/setup" class="nav-link {% block nav_setup %}{% endblock %}">Setup</a>
-            <a href="/config" class="nav-link {% block nav_config %}{% endblock %}">Config</a>
-            <a href="/logs" class="nav-link {% block nav_logs %}{% endblock %}">Logs</a>
+            <a href="{{ bp }}/status" class="nav-link {% block nav_status %}{% endblock %}">Status</a>
+            <a href="{{ bp }}/setup" class="nav-link {% block nav_setup %}{% endblock %}">Setup</a>
+            <a href="{{ bp }}/config" class="nav-link {% block nav_config %}{% endblock %}">Config</a>
+            <a href="{{ bp }}/logs" class="nav-link {% block nav_logs %}{% endblock %}">Logs</a>
         </div>
     </nav>
 
@@ -26,10 +27,10 @@
     </main>
 
     <footer class="footer">
-        <p>EchoWeave v{{ version | default("0.1.4") }} — Alexa bridge for Music Assistant</p>
+        <p>EchoWeave v{{ version | default("0.1.5") }} — Alexa bridge for Music Assistant</p>
     </footer>
 
-    <script src="/static/app.js"></script>
+    <script src="{{ bp }}/static/app.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

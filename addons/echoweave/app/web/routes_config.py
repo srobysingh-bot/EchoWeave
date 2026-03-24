@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.storage.secrets import redact_dict
+from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/config", tags=["config"])
@@ -40,6 +41,7 @@ async def config_page(request: Request) -> HTMLResponse:
         request,
         "config.html",
         {
+            "base_path": get_ingress_base_path(request),
             "config": config_summary,
         },
     )

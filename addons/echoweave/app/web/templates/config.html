@@ -49,6 +49,8 @@
 
 {% block scripts %}
 <script>
+const BASE_PATH = {{ (base_path | default('')) | tojson }};
+
 async function replaceToken(e) {
     e.preventDefault();
     const token = document.getElementById('new_token').value;
@@ -56,7 +58,7 @@ async function replaceToken(e) {
     result.style.display = 'block';
     result.textContent = 'Replacing token…';
     try {
-        const resp = await fetch('/config/replace-token', {
+        const resp = await fetch(`${BASE_PATH}/config/replace-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ma_token: token }),

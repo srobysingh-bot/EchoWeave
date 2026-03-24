@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] - 2026-03-24
+
+### Fixed
+
+- Replace fake /app/{slug} route duplication with proper ingress base-path handling via X-Ingress-Path.
+- Make redirects and UI links ingress-aware while keeping normal direct /setup, /status, /logs, /config routes.
+- Add debug endpoints for route/base-path diagnostics.
+- Sync add-on manifest, runtime constants, and startup banner to version 0.1.5.
+
 ## [0.1.4] - 2026-03-24
 
 ### Fixed

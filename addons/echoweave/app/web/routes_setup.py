@@ -15,6 +15,7 @@ from app.storage.models import PersistedConfig
 from app.ma.client import MusicAssistantClient
 from app.diagnostics.checks import check_public_url
 from app.core.service_registry import registry
+from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/setup", tags=["setup"])
@@ -60,6 +61,7 @@ async def setup_page(request: Request, settings=Depends(get_settings), persisten
         request,
         "setup.html",
         {
+            "base_path": get_ingress_base_path(request),
             "checklist": checklist,
             "complete": complete,
             "total": total,

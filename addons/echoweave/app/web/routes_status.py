@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.core.constants import APP_VERSION
+from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["status"])
@@ -56,6 +57,7 @@ async def status_page(request: Request) -> HTMLResponse:
         request,
         "status.html",
         {
+            "base_path": get_ingress_base_path(request),
             "items": items,
             "errors": errors,
             "version": APP_VERSION,

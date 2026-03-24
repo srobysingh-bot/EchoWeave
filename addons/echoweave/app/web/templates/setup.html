@@ -89,6 +89,8 @@
 
 {% block scripts %}
 <script>
+const BASE_PATH = {{ (base_path | default('')) | tojson }};
+
 async function validateMA() {
     const maUrl = document.getElementById('ma_base_url').value;
     const maToken = document.getElementById('ma_token').value;
@@ -103,7 +105,7 @@ async function validateMA() {
     result.textContent = 'Validating Music Assistant…';
     result.className = 'action-result info';
     try {
-        const resp = await fetch('/setup/validate-ma', { 
+        const resp = await fetch(`${BASE_PATH}/setup/validate-ma`, { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ma_base_url: maUrl, ma_token: maToken })
@@ -133,7 +135,7 @@ async function validatePublic() {
     result.textContent = 'Validating public endpoint…';
     result.className = 'action-result info';
     try {
-        const resp = await fetch('/setup/validate-public', { 
+        const resp = await fetch(`${BASE_PATH}/setup/validate-public`, { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ public_base_url: pubUrl })
@@ -155,7 +157,7 @@ async function saveConfig(e) {
     result.style.display = 'block';
     result.textContent = 'Saving…';
     try {
-        const resp = await fetch('/setup/save', {
+        const resp = await fetch(`${BASE_PATH}/setup/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),

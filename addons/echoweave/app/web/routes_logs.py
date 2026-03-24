@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from app.storage.secrets import redact
+from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -55,6 +56,7 @@ async def logs_page(request: Request) -> HTMLResponse:
         request,
         "logs.html",
         {
+            "base_path": get_ingress_base_path(request),
             "entries": entries,
             "total": len(_LOG_BUFFER),
         },

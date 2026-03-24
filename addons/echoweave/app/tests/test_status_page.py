@@ -43,20 +43,22 @@ def test_root_redirect():
     assert "/setup" in resp.headers.get("location", "")
 
 
-def test_ingress_root_redirect():
-    """GET /app/<slug> should redirect to the ingress-prefixed setup page."""
+def test_ingress_header_root_redirect():
+    """GET / should redirect with ingress base path when X-Ingress-Path is present."""
     with TestClient(app) as client:
-        resp = client.get("/app/06cc5e17_echoweave", follow_redirects=False)
+        resp = client.get("/", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"}, follow_redirects=False)
     assert resp.status_code in (301, 302, 307)
     assert "/app/06cc5e17_echoweave/setup" in resp.headers.get("location", "")
 
 
-def test_ingress_setup_page_returns_html():
-    """GET /app/<slug>/setup should render setup HTML instead of 404."""
+def test_setup_page_uses_ingress_base_links():
+    """GET /setup should render links scoped to ingress base path header."""
     with TestClient(app) as client:
-        resp = client.get("/app/06cc5e17_echoweave/setup")
+        resp = client.get("/setup", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"})
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+    assert '/app/06cc5e17_echoweave/status' in resp.text
+    assert '/app/06cc5e17_echoweave/static/app.css' in resp.text
 
 
 def test_debug_routes_contains_expected_paths():
@@ -66,6 +68,8 @@ def test_debug_routes_contains_expected_paths():
     assert resp.status_code == 200
 
     payload = resp.json()
+    assert payload["version"] == "0.1.5"
+    assert "effective_base_path" in payload
     paths = {row["path"] for row in payload.get("routes", [])}
     assert "/" in paths
     assert "/setup" in paths
@@ -74,6 +78,16 @@ def test_debug_routes_contains_expected_paths():
     assert "/logs" in paths
     assert "/config" in paths
     assert "/alexa" in paths
+
+
+def test_debug_routes_shows_ingress_header_and_base_path():
+    """GET /debug/routes should report ingress header and computed base path."""
+    with TestClient(app) as client:
+        resp = client.get("/debug/routes", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["x_ingress_path"] == "/app/06cc5e17_echoweave"
+    assert payload["effective_base_path"] == "/app/06cc5e17_echoweave"
 
 
 def test_debug_ping_ui_returns_html():
@@ -85,6 +99,6 @@ def test_debug_ping_ui_returns_html():
     assert "EchoWeave UI OK" in resp.text
 
 
-def test_runtime_version_is_014():
-    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.4."""
-    assert APP_VERSION == "0.1.4"
+def test_runtime_version_is_015():
+    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.5."""
+    assert APP_VERSION == "0.1.5"
