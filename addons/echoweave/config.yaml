@@ -1,9 +1,8 @@
----
 name: EchoWeave
 slug: echoweave
 description: Alexa bridge backend for Music Assistant
 url: "https://github.com/srobysingh-bot/EchoWeave"
-version: "0.1.0"
+version: "0.1.1"
 startup: services
 init: false
 arch:
@@ -12,25 +11,20 @@ arch:
   - armhf
   - armv7
   - i386
-
 ingress: true
 ingress_port: 5000
 ingress_entry: /
 panel_title: EchoWeave
 panel_icon: mdi:music-circle-outline
-
 homeassistant_api: false
 host_network: false
-
 map:
   - config:rw
   - share:rw
-
 ports:
   "5000/tcp": 5000
 ports_description:
   "5000/tcp": "EchoWeave admin UI and Alexa webhook"
-
 options:
   ma_base_url: ""
   ma_token: ""
@@ -43,7 +37,6 @@ options:
   log_level: "info"
   debug: false
   allow_insecure_local_test: false
-
 schema:
   ma_base_url: url?
   ma_token: password?
