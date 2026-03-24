@@ -139,6 +139,14 @@ def create_app() -> FastAPI:
     _app.include_router(config_router)
     _app.include_router(alexa_router)
 
+    # Home Assistant ingress path support: duplicate web routes under /app/{addon_slug}
+    # so links like /app/<slug>/setup resolve even when HA forwards the full path.
+    _app.include_router(health_router, prefix="/app/{addon_slug}")
+    _app.include_router(status_router, prefix="/app/{addon_slug}")
+    _app.include_router(setup_router, prefix="/app/{addon_slug}")
+    _app.include_router(logs_router, prefix="/app/{addon_slug}")
+    _app.include_router(config_router, prefix="/app/{addon_slug}")
+
     # Static files
     _app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
 
@@ -180,9 +188,14 @@ def create_app() -> FastAPI:
     _app.add_middleware(AdminAuthMiddleware)
 
     # Root redirect
-    @_app.get("/")
+    @_app.get("/", include_in_schema=False)
     async def root():
-        return RedirectResponse(url="/status")
+        return RedirectResponse(url="/setup")
+
+    @_app.get("/app/{addon_slug}", include_in_schema=False)
+    @_app.get("/app/{addon_slug}/", include_in_schema=False)
+    async def ingress_root(addon_slug: str):
+        return RedirectResponse(url=f"/app/{addon_slug}/setup")
 
     # Global exception handler
     @_app.exception_handler(EchoWeaveError)
