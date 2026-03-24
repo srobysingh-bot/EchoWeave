@@ -40,15 +40,15 @@ def test_root_redirect():
     with TestClient(app) as client:
         resp = client.get("/", follow_redirects=False)
     assert resp.status_code in (301, 302, 307)
-    assert "/setup" in resp.headers.get("location", "")
+    assert resp.headers.get("location", "") in ("setup", "/setup")
 
 
 def test_ingress_header_root_redirect():
-    """GET / should redirect with ingress base path when X-Ingress-Path is present."""
+    """GET / should use a relative redirect so ingress keeps ownership of /app/<slug>."""
     with TestClient(app) as client:
         resp = client.get("/", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"}, follow_redirects=False)
     assert resp.status_code in (301, 302, 307)
-    assert "/app/06cc5e17_echoweave/setup" in resp.headers.get("location", "")
+    assert resp.headers.get("location", "") in ("setup", "/setup")
 
 
 def test_setup_page_uses_ingress_base_links():
@@ -70,6 +70,10 @@ def test_debug_routes_contains_expected_paths():
     payload = resp.json()
     assert payload["version"] == "0.1.7"
     assert "effective_base_path" in payload
+    assert "scope_path" in payload
+    assert "scope_raw_path" in payload
+    assert "scope_root_path" in payload
+    assert "request_url_path" in payload
     paths = {row["path"] for row in payload.get("routes", [])}
     assert "/" in paths
     assert "/setup" in paths
@@ -78,6 +82,7 @@ def test_debug_routes_contains_expected_paths():
     assert "/logs" in paths
     assert "/config" in paths
     assert "/alexa" in paths
+    assert not any(path.startswith("/app/") for path in paths)
 
 
 def test_debug_routes_shows_ingress_header_and_base_path():
@@ -88,6 +93,16 @@ def test_debug_routes_shows_ingress_header_and_base_path():
     payload = resp.json()
     assert payload["x_ingress_path"] == "/app/06cc5e17_echoweave"
     assert payload["effective_base_path"] == "/app/06cc5e17_echoweave"
+
+
+def test_debug_routes_reports_normalized_scope_path():
+    """GET ///debug/routes should report normalized path metadata."""
+    with TestClient(app) as client:
+        resp = client.get("///debug/routes")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["scope_path"] == "/debug/routes"
+    assert payload["request_url_path"] == "/debug/routes"
 
 
 def test_debug_ping_ui_returns_html():
@@ -104,20 +119,18 @@ def test_runtime_version_is_017():
     assert APP_VERSION == "0.1.7"
 
 
-def test_legacy_ingress_path_setup_returns_html():
-    """GET /app/<slug>/setup should work for ingress proxies without header injection."""
+def test_legacy_ingress_path_setup_not_registered():
+    """GET /app/<slug>/setup should not be registered in FastAPI anymore."""
     with TestClient(app) as client:
         resp = client.get("/app/06cc5e17_echoweave/setup")
-    assert resp.status_code == 200
-    assert "text/html" in resp.headers.get("content-type", "")
+    assert resp.status_code == 404
 
 
-def test_legacy_ingress_path_ping_ui_returns_html():
-    """GET /app/<slug>/debug/ping-ui should return a simple HTML page."""
+def test_legacy_ingress_path_ping_ui_not_registered():
+    """GET /app/<slug>/debug/ping-ui should not be registered in FastAPI anymore."""
     with TestClient(app) as client:
         resp = client.get("/app/06cc5e17_echoweave/debug/ping-ui")
-    assert resp.status_code == 200
-    assert "EchoWeave UI OK" in resp.text
+    assert resp.status_code == 404
 
 
 def test_double_slash_path_is_normalized_for_root_redirect():
@@ -125,12 +138,12 @@ def test_double_slash_path_is_normalized_for_root_redirect():
     with TestClient(app) as client:
         resp = client.get("//", follow_redirects=False)
     assert resp.status_code in (301, 302, 307)
-    assert "/setup" in resp.headers.get("location", "")
+    assert resp.headers.get("location", "") in ("setup", "/setup")
 
 
 def test_double_slash_with_ingress_header_redirects_to_ingress_setup():
-    """GET // with ingress header should redirect into ingress-scoped setup path."""
+    """GET // with ingress header should still normalize/redirect before 404."""
     with TestClient(app) as client:
         resp = client.get("//", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"}, follow_redirects=False)
     assert resp.status_code in (301, 302, 307)
-    assert "/app/06cc5e17_echoweave/setup" == resp.headers.get("location", "")
+    assert resp.headers.get("location", "") in ("setup", "/setup")

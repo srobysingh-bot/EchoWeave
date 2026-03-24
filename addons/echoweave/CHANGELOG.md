@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- Add low-level ASGI path normalization so malformed ingress requests like // are rewritten to / before route matching.
-- Sync add-on and runtime versions to 0.1.7 to force rebuild and avoid stale containers.
+- Replace ingress path mutation with pure ASGI scope normalization so malformed paths like `//` and `///setup` are rewritten before FastAPI route matching.
+- Remove duplicated `/app/{addon_slug}` routes and keep only canonical app-local routes (`/`, `/setup`, `/status`, `/logs`, `/config`, `/health`, `/alexa`, `/debug/*`).
+- Keep ingress awareness only for URL generation via `X-Ingress-Path`/`root_path`; routing is no longer reconstructed inside FastAPI.
+- Add richer `/debug/routes` diagnostics including scope path/raw_path/root_path, request URL path, effective ingress base, and route table.
+- Relax admin auth checks under ingress so Home Assistant ingress authentication is not blocked by add-on UI auth.
+- Sync add-on and runtime versions to `0.1.7`.
 
 ## [0.1.6] - 2026-03-24
 

@@ -36,7 +36,7 @@ def test_base_path_empty_for_direct_mode() -> None:
     assert build_base_url(request, "/setup") == "/setup"
 
 
-def test_base_path_falls_back_from_legacy_ingress_path() -> None:
+def test_base_path_does_not_infer_from_request_path() -> None:
     request = _make_request(path="/app/06cc5e17_echoweave/setup")
-    assert get_ingress_base_path(request) == "/app/06cc5e17_echoweave"
-    assert build_base_url(request, "/status") == "/app/06cc5e17_echoweave/status"
+    assert get_ingress_base_path(request) == ""
+    assert build_base_url(request, "/status") == "/status"
