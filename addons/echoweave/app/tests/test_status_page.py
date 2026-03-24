@@ -15,6 +15,14 @@ def test_status_returns_200():
     assert "text/html" in resp.headers.get("content-type", "")
 
 
+def test_setup_returns_200():
+    """GET /setup should return 200 with HTML (not 404)."""
+    with TestClient(app) as client:
+        resp = client.get("/setup")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+
+
 def test_status_contains_key_elements():
     """The status page should contain expected heading and status items."""
     with TestClient(app) as client:
@@ -48,3 +56,20 @@ def test_ingress_setup_page_returns_html():
         resp = client.get("/app/06cc5e17_echoweave/setup")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+
+
+def test_debug_routes_contains_expected_paths():
+    """GET /debug/routes should list core web and API routes."""
+    with TestClient(app) as client:
+        resp = client.get("/debug/routes")
+    assert resp.status_code == 200
+
+    payload = resp.json()
+    paths = {row["path"] for row in payload.get("routes", [])}
+    assert "/" in paths
+    assert "/setup" in paths
+    assert "/status" in paths
+    assert "/health" in paths
+    assert "/logs" in paths
+    assert "/config" in paths
+    assert "/alexa" in paths

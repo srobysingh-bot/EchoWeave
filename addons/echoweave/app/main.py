@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
@@ -31,6 +32,25 @@ from app.alexa.router import router as alexa_router
 
 logger = logging.getLogger(__name__)
 
+APP_DIR = Path(__file__).resolve().parent
+WEB_DIR = APP_DIR / "web"
+STATIC_DIR = WEB_DIR / "static"
+
+
+def _serialise_routes(fastapi_app: FastAPI) -> list[dict[str, object]]:
+    """Build a JSON-safe route listing for diagnostics."""
+    route_rows: list[dict[str, object]] = []
+    for route in fastapi_app.routes:
+        methods = sorted(route.methods) if getattr(route, "methods", None) else []
+        route_rows.append(
+            {
+                "path": route.path,
+                "name": route.name,
+                "methods": methods,
+            }
+        )
+    return sorted(route_rows, key=lambda row: str(row["path"]))
+
 
 # ---------------------------------------------------------------------------
 # Lifespan (startup / shutdown)
@@ -45,6 +65,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     install_log_buffer()
 
     logger.info("%s v%s starting up.", APP_NAME, APP_VERSION)
+    logger.info("Static directory: %s (exists=%s)", app.state.static_dir, STATIC_DIR.is_dir())
+    logger.info("Template directory: %s (exists=%s)", app.state.template_dir, app.state.template_dir_exists)
+
+    for row in _serialise_routes(app):
+        logger.info("Route registered: %s methods=%s", row["path"], row["methods"])
 
     # Persistence
     from app.storage.persistence import PersistenceService
@@ -131,6 +156,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    _app.state.static_dir = str(STATIC_DIR)
+    _app.state.template_dir = str(WEB_DIR / "templates")
+    _app.state.template_dir_exists = (WEB_DIR / "templates").is_dir()
+
     # Register routers
     _app.include_router(health_router)
     _app.include_router(status_router)
@@ -148,7 +177,20 @@ def create_app() -> FastAPI:
     _app.include_router(config_router, prefix="/app/{addon_slug}")
 
     # Static files
-    _app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
+    _app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    @_app.middleware("http")
+    async def request_trace_middleware(request: Request, call_next):
+        logger.info("HTTP request received: method=%s path=%s", request.method, request.url.path)
+        response = await call_next(request)
+        logger.info(
+            "HTTP response sent: method=%s path=%s status=%s matched=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            response.status_code != 404,
+        )
+        return response
 
     # Basic Auth Middleware
     import base64
@@ -196,6 +238,10 @@ def create_app() -> FastAPI:
     @_app.get("/app/{addon_slug}/", include_in_schema=False)
     async def ingress_root(addon_slug: str):
         return RedirectResponse(url=f"/app/{addon_slug}/setup")
+
+    @_app.get("/debug/routes", include_in_schema=False)
+    async def debug_routes() -> JSONResponse:
+        return JSONResponse(content={"routes": _serialise_routes(_app)})
 
     # Global exception handler
     @_app.exception_handler(EchoWeaveError)
