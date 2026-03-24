@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -188,15 +189,33 @@ def create_app() -> FastAPI:
     _app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @_app.middleware("http")
+    async def normalize_path_middleware(request: Request, call_next):
+        """Normalize malformed proxy paths like '//' before route matching."""
+        original_path = request.scope.get("path", "") or "/"
+        normalized_path = re.sub(r"/{2,}", "/", original_path)
+        if normalized_path != original_path:
+            request.scope["path"] = normalized_path
+            request.scope["raw_path"] = normalized_path.encode("utf-8")
+        return await call_next(request)
+
+    @_app.middleware("http")
     async def request_trace_middleware(request: Request, call_next):
-        logger.info("HTTP request received: method=%s path=%s", request.method, request.url.path)
+        logger.info(
+            "HTTP request received: method=%s path=%s raw_path=%s root_path=%s x_ingress_path=%s",
+            request.method,
+            request.url.path,
+            request.scope.get("raw_path", b"").decode("utf-8", errors="ignore"),
+            request.scope.get("root_path", ""),
+            request.headers.get("X-Ingress-Path", ""),
+        )
         response = await call_next(request)
         logger.info(
-            "HTTP response sent: method=%s path=%s status=%s matched=%s",
+            "HTTP response sent: method=%s path=%s status=%s matched=%s effective_base=%s",
             request.method,
             request.url.path,
             response.status_code,
             response.status_code != 404,
+            get_ingress_base_path(request),
         )
         return response
 

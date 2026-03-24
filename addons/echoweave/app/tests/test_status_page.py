@@ -118,3 +118,19 @@ def test_legacy_ingress_path_ping_ui_returns_html():
         resp = client.get("/app/06cc5e17_echoweave/debug/ping-ui")
     assert resp.status_code == 200
     assert "EchoWeave UI OK" in resp.text
+
+
+def test_double_slash_path_is_normalized_for_root_redirect():
+    """GET // should be normalized and handled like GET /."""
+    with TestClient(app) as client:
+        resp = client.get("//", follow_redirects=False)
+    assert resp.status_code in (301, 302, 307)
+    assert "/setup" in resp.headers.get("location", "")
+
+
+def test_double_slash_with_ingress_header_redirects_to_ingress_setup():
+    """GET // with ingress header should redirect into ingress-scoped setup path."""
+    with TestClient(app) as client:
+        resp = client.get("//", headers={"X-Ingress-Path": "/app/06cc5e17_echoweave"}, follow_redirects=False)
+    assert resp.status_code in (301, 302, 307)
+    assert "/app/06cc5e17_echoweave/setup" == resp.headers.get("location", "")
