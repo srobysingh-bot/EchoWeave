@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.constants import APP_VERSION
 from app.main import app
 
 def test_status_returns_200():
@@ -73,3 +74,17 @@ def test_debug_routes_contains_expected_paths():
     assert "/logs" in paths
     assert "/config" in paths
     assert "/alexa" in paths
+
+
+def test_debug_ping_ui_returns_html():
+    """GET /debug/ping-ui should return a minimal HTML confirmation page."""
+    with TestClient(app) as client:
+        resp = client.get("/debug/ping-ui")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "EchoWeave UI OK" in resp.text
+
+
+def test_runtime_version_is_014():
+    """Runtime APP_VERSION constant must be aligned with add-on version 0.1.4."""
+    assert APP_VERSION == "0.1.4"

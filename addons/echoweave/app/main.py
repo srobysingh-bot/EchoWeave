@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.constants import APP_DESCRIPTION, APP_NAME, APP_VERSION
@@ -64,7 +64,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(level=settings.log_level)
     install_log_buffer()
 
-    logger.info("%s v%s starting up.", APP_NAME, APP_VERSION)
+    build_sha = (
+        os.getenv("ECHOWEAVE_GIT_SHA")
+        or os.getenv("GIT_COMMIT_SHA")
+        or os.getenv("SOURCE_COMMIT")
+        or "unknown"
+    )
+    logger.info("%s v%s starting up. build_sha=%s", APP_NAME, APP_VERSION, build_sha)
     logger.info("Static directory: %s (exists=%s)", app.state.static_dir, STATIC_DIR.is_dir())
     logger.info("Template directory: %s (exists=%s)", app.state.template_dir, app.state.template_dir_exists)
 
@@ -201,11 +207,12 @@ def create_app() -> FastAPI:
     class AdminAuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             # Exempt paths
-            if request.url.path.startswith(("/alexa", "/health", "/static")):
+            if request.url.path.startswith(("/alexa", "/health", "/static", "/debug")) or \
+               "/debug/" in request.url.path:
                 return await call_next(request)
             
             # Fetch current settings from registry
-            config_svc = registry.get("config_service")
+            config_svc = registry.get_optional("config_service")
             if not config_svc or not config_svc.settings.ui_auth_enabled:
                 return await call_next(request)
                 
@@ -240,8 +247,14 @@ def create_app() -> FastAPI:
         return RedirectResponse(url=f"/app/{addon_slug}/setup")
 
     @_app.get("/debug/routes", include_in_schema=False)
-    async def debug_routes() -> JSONResponse:
+    @_app.get("/app/{addon_slug}/debug/routes", include_in_schema=False)
+    async def debug_routes(addon_slug: str | None = None) -> JSONResponse:
         return JSONResponse(content={"routes": _serialise_routes(_app)})
+
+    @_app.get("/debug/ping-ui", include_in_schema=False)
+    @_app.get("/app/{addon_slug}/debug/ping-ui", include_in_schema=False)
+    async def debug_ping_ui(addon_slug: str | None = None) -> HTMLResponse:
+        return HTMLResponse("<h1>EchoWeave UI OK</h1>")
 
     # Global exception handler
     @_app.exception_handler(EchoWeaveError)

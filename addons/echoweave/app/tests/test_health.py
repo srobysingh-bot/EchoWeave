@@ -19,7 +19,7 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.1.0"
+    assert data["version"] == "0.1.4"
 
 
 def test_health_service_check_present():
