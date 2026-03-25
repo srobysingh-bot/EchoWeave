@@ -59,6 +59,7 @@ async def status_page(request: Request) -> HTMLResponse:
     diagnostics = {
         "public_base_url": {"value": "", "source": "default"},
         "stream_base_url": {"value": "", "source": "default"},
+        "public_probe_path": {"value": "/healthz", "source": "runtime"},
     }
     if config_svc:
         with_sources = config_svc.get_effective_with_sources()

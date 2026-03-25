@@ -139,6 +139,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         return [{"key": "ma_reachable", "status": "fail", "message": "MA client not registered."}]
 
     async def public_check():
+        # check_public_url probes /healthz to avoid recursive /health self-check loops.
         return await check_public_url(settings.public_base_url)
 
     async def ask_check():

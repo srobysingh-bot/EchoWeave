@@ -12,6 +12,25 @@ from app.core.constants import APP_NAME, APP_VERSION, HEALTH_KEY_SERVICE
 router = APIRouter(tags=["health"])
 
 
+@router.get("/healthz")
+async def healthz() -> JSONResponse:
+    """Return lightweight liveness status without running nested checks."""
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "version": APP_VERSION,
+            "checks": [
+                {
+                    "key": HEALTH_KEY_SERVICE,
+                    "status": "ok",
+                    "message": f"{APP_NAME} v{APP_VERSION} is running.",
+                }
+            ],
+        },
+        status_code=200,
+    )
+
+
 @router.get("/health")
 async def health_check() -> JSONResponse:
     """Return JSON health status for monitoring and load-balancer probes.

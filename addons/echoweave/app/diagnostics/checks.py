@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import httpx
 
@@ -21,8 +21,9 @@ async def check_public_url(public_base_url: str) -> dict[str, Any]:
     is_localish = host in {"localhost", "127.0.0.1", "0.0.0.0", "homeassistant", "supervisor"} or host.endswith((".local", ".lan", ".internal", ".home"))
 
     try:
+        probe_url = urljoin(public_base_url.rstrip("/") + "/", "healthz")
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{public_base_url}/health")
+            resp = await client.get(probe_url)
 
         if resp.status_code == 200 and parsed.scheme == "https" and not is_localish:
             return {
@@ -58,7 +59,11 @@ async def check_public_url(public_base_url: str) -> dict[str, Any]:
             "message": f"Public endpoint returned unexpected HTTP {resp.status_code}.",
         }
     except Exception as exc:
-        return {"key": "public_url_reachable", "status": "fail", "message": f"Unreachable: {exc}"}
+        return {
+            "key": "public_url_reachable",
+            "status": "fail",
+            "message": f"Unreachable: {type(exc).__name__}: {exc!r}",
+        }
 
 
 async def check_ask_configured(data_dir: str) -> dict[str, Any]:

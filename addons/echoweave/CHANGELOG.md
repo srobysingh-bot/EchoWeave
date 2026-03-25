@@ -5,6 +5,17 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-25
+
+### Fixed
+
+- Break recursive Public Endpoint health probing by introducing lightweight `GET /healthz` liveness and probing that path externally.
+- Improve public endpoint unreachable diagnostics by including exception type and repr so failures are actionable.
+- Refine stream endpoint semantics so base-root HTTP 404/405 is treated as reachable-but-base-empty (warning), not broken streaming.
+- Preserve config source-of-truth precedence behavior and diagnostics source reporting from add-on options.
+- Add tests for non-recursive public checks, `/healthz` behavior, trycloudflare public URL handling, richer error text, and stream-root warning semantics.
+- Align runtime and packaging markers to `0.2.0`.
+
 ## [0.1.9] - 2026-03-25
 
 ### Fixed

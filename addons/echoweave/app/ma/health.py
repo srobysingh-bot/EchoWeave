@@ -46,7 +46,7 @@ class MAHealthChecker:
     @staticmethod
     async def check_stream_url(stream_base_url: str, allow_insecure: bool = False) -> dict[str, Any]:
         """Verify that the stream base URL is reachable and secure."""
-        from app.ma.stream_resolver import is_valid_alexa_stream_url
+        from app.ma.stream_resolver import is_valid_alexa_stream_url, STREAM_PATH_HINT
         if not stream_base_url:
             return {
                 "key": "stream_url_valid",
@@ -71,6 +71,15 @@ class MAHealthChecker:
                     "key": "stream_url_valid",
                     "status": "ok",
                     "message": f"Stream URL is reachable with HTTP {status}.",
+                }
+            if status in (404, 405):
+                return {
+                    "key": "stream_url_valid",
+                    "status": "warn",
+                    "message": (
+                        f"Base URL reachable; root returned HTTP {status}. "
+                        f"This may be normal if stream paths are generated under {STREAM_PATH_HINT}."
+                    ),
                 }
             if 400 <= status < 500:
                 return {

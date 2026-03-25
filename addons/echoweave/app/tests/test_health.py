@@ -19,7 +19,25 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.1.9"
+    assert data["version"] == "0.2.0"
+
+
+def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
+    class _ExplodingHealthService:
+        async def run_all(self):
+            raise AssertionError("run_all must not be called for /healthz")
+
+    monkeypatch.setattr("app.dependencies.get_health_service", lambda: _ExplodingHealthService())
+
+    with TestClient(app) as client:
+        resp = client.get("/healthz")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "ok"
+    assert payload["version"] == "0.2.0"
+    assert isinstance(payload["checks"], list)
+    assert payload["checks"][0]["key"] == "service"
 
 
 def test_health_service_check_present():

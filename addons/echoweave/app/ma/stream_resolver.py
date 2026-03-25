@@ -19,6 +19,8 @@ from app.core.exceptions import StreamResolutionError
 
 logger = logging.getLogger(__name__)
 
+STREAM_PATH_HINT = "/stream/<queue_id>/<queue_item_id>"
+
 def is_valid_alexa_stream_url(url: str, allow_insecure: bool) -> bool:
     """Return True if the URL is public HTTPS, or if insecure overrides are allowed."""
     try:
