@@ -5,6 +5,20 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-03-25
+
+### Fixed
+
+- Add explicit LaunchRequest response diagnostics in Alexa router logs, including `request.type`, full response payload, and returned HTTP status.
+- Simplify LaunchRequest voice response to a minimal Alexa-safe payload:
+	- `speech`: `Welcome to EchoWeave.`
+	- `reprompt`: `Say play audio to begin.`
+	- `shouldEndSession`: `false`
+- Harden Alexa response envelopes by including top-level `sessionAttributes` (empty object by default) for schema consistency.
+- Map custom intent name `PlayAudio` to the same handler as `PlayIntent` to support manually configured Alexa skills.
+- Add integration tests for LaunchRequest response schema and for `IntentRequest` with intent name `PlayAudio`.
+- Align runtime and packaging markers to `0.2.3`.
+
 ## [0.2.2] - 2026-03-25
 
 ### Fixed

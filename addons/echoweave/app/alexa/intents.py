@@ -114,6 +114,7 @@ async def _handle_unknown(body: dict[str, Any]) -> dict[str, Any]:
 
 _INTENT_MAP: dict[str, Any] = {
     "PlayIntent": _handle_play,
+    "PlayAudio": _handle_play,
     "AMAZON.PauseIntent": _handle_pause,
     "AMAZON.ResumeIntent": _handle_resume,
     "AMAZON.NextIntent": _handle_next,

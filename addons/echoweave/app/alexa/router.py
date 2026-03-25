@@ -80,13 +80,17 @@ async def alexa_webhook(request: Request) -> JSONResponse:
     request_type = body.get("request", {}).get("type", "")
     intent_name = body.get("request", {}).get("intent", {}).get("name", "")
     logger.info("Alexa request received: type=%s intent=%s", request_type, intent_name or "<none>")
+    logger.info("Alexa request.type=%s", request_type)
 
     try:
         if request_type == "LaunchRequest":
             try:
                 response = _handle_launch()
+                status_code = 200
                 logger.info("LaunchRequest handled successfully.")
-                return JSONResponse(content=response)
+                logger.info("LaunchRequest response payload: %s", response)
+                logger.info("LaunchRequest HTTP status: %s", status_code)
+                return JSONResponse(content=response, status_code=status_code)
             except Exception:
                 logger.exception("LaunchRequest handling failed.")
                 raise
@@ -124,7 +128,7 @@ async def alexa_webhook(request: Request) -> JSONResponse:
 def _handle_launch() -> dict[str, Any]:
     """Respond to LaunchRequest with a welcome message."""
     return build_response(
-        speech="Welcome to EchoWeave. You can say play audio to begin.",
-        reprompt="Say play audio to start playback, or say help for more options.",
+        speech="Welcome to EchoWeave.",
+        reprompt="Say play audio to begin.",
         should_end_session=False,
     )

@@ -16,6 +16,7 @@ def build_response(
     should_end_session: Optional[bool] = None,
     directives: list[dict[str, Any]] | None = None,
     card: dict[str, Any] | None = None,
+    session_attributes: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a valid Alexa response envelope.
 
@@ -32,6 +33,9 @@ def build_response(
         List of AudioPlayer or other directives.
     card:
         Optional visual card for Alexa app.
+    session_attributes:
+        Optional session attributes object. Defaults to an empty object for
+        schema safety in conversational responses.
     """
     response: dict[str, Any] = {}
 
@@ -58,8 +62,12 @@ def build_response(
     if card:
         response["card"] = card
 
+    if session_attributes is None:
+        session_attributes = {}
+
     return {
         "version": "1.0",
+        "sessionAttributes": session_attributes,
         "response": response,
     }
 
