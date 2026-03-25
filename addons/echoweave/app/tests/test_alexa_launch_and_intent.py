@@ -1,4 +1,4 @@
-"""Tests for Alexa LaunchRequest and PlayIntent compatibility."""
+"""Tests for Alexa LaunchRequest and intent routing compatibility."""
 
 from __future__ import annotations
 
@@ -54,18 +54,21 @@ def test_launch_request_returns_valid_welcome_response(monkeypatch):
         resp = client.post("/alexa", json=payload)
 
     assert resp.status_code == 200
+    assert "application/json" in resp.headers.get("content-type", "")
     data = resp.json()
     assert data.get("version") == "1.0"
     assert "sessionAttributes" in data
-    assert isinstance(data["sessionAttributes"], dict)
+    assert data["sessionAttributes"] == {}
     response = data.get("response", {})
     assert response.get("shouldEndSession") is False
     assert "outputSpeech" in response
     assert response["outputSpeech"].get("type") == "PlainText"
-    assert response["outputSpeech"].get("text") == "Welcome to EchoWeave."
+    assert response["outputSpeech"].get("text") == "Welcome to EchoWeave. You can say play audio to begin."
     assert "reprompt" in response
     assert "outputSpeech" in response["reprompt"]
     assert response["reprompt"]["outputSpeech"].get("text") == "Say play audio to begin."
+    assert "directives" not in response
+    assert "card" not in response
 
 
 def test_play_intent_still_returns_success_response(monkeypatch):
@@ -90,6 +93,10 @@ def test_play_intent_still_returns_success_response(monkeypatch):
     response = data.get("response", {})
     assert "outputSpeech" in response
     assert response.get("shouldEndSession") is True
+    assert (
+        response["outputSpeech"].get("text")
+        == "EchoWeave received your play request, but full playback integration is not complete yet."
+    )
 
 
 def test_playaudio_intent_maps_to_play_handler(monkeypatch):
@@ -115,5 +122,29 @@ def test_playaudio_intent_maps_to_play_handler(monkeypatch):
     assert "outputSpeech" in response
     assert (
         response["outputSpeech"].get("text")
-        == "Playback will start once Music Assistant integration is complete."
+        == "EchoWeave received your play request, but full playback integration is not complete yet."
     )
+    assert response["outputSpeech"].get("text") != "Sorry, I don't understand that command."
+
+
+def test_unknown_intent_uses_unknown_fallback(monkeypatch):
+    _bypass_signature_and_timestamp(monkeypatch)
+
+    payload = _base_envelope(
+        {
+            "type": "IntentRequest",
+            "requestId": "EdwRequestId.unknown",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "locale": "en-US",
+            "intent": {"name": "SomeUnknownIntent", "confirmationStatus": "NONE"},
+        }
+    )
+
+    with TestClient(app) as client:
+        resp = client.post("/alexa", json=payload)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    response = data.get("response", {})
+    assert response.get("shouldEndSession") is False
+    assert response.get("outputSpeech", {}).get("text") == "Sorry, I don't understand that command."

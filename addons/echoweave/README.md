@@ -67,7 +67,8 @@ Completing the setup checklist in Phase 1 requires manually creating and configu
 
 1. Go to the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
 2. Create a new **Alexa Skills Kit (ASK)** skill with a custom model.
-3. In the skill's **Interaction Model**, add intents for `LaunchRequest` and `PlayAudio`. EchoWeave provides built-in response handlers for these.
+3. In the skill's **Interaction Model**, add the custom intent `PlayAudio`.
+  LaunchRequest is a request type (not an intent) and is handled automatically by EchoWeave.
 4. In **Endpoint**, set the default region endpoint to your public EchoWeave URL: `https://your-domain.com/alexa`
 5. Build your interaction model.
 6. Copy your **Skill ID** (format: `amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).

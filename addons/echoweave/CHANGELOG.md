@@ -5,6 +5,21 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-03-25
+
+### Fixed
+
+- Add explicit logging for every `/alexa` request and response, including `request.type`, intent name (if present), HTTP status, and final response JSON payload.
+- Improve LaunchRequest instrumentation by logging entry into `_handle_launch`, the payload created by `build_response`, and full traceback visibility on exceptions.
+- Return a strict minimal Alexa-safe LaunchRequest response with top-level `version`, top-level `sessionAttributes`, `outputSpeech`, `reprompt`, and `shouldEndSession=false`.
+- Keep LaunchRequest response simple: no directives, no cards, no APL, and no Music Assistant dependency.
+- Map custom intent `PlayAudio` to the same handler as `PlayIntent`, preserving backward compatibility for `PlayIntent`.
+- Add explicit logging of selected intent handler to avoid ambiguous routing diagnostics.
+- Clarify play-stub response text so Alexa fallback behavior cannot be misread as successful custom-skill playback.
+- Add regression tests for LaunchRequest schema, PlayAudio routing, PlayIntent compatibility, and unknown-intent fallback.
+- Clarify README wording that LaunchRequest is a request type (not an intent) and `PlayAudio` is the custom intent name.
+- Align runtime and packaging markers to `0.2.4`.
+
 ## [0.2.3] - 2026-03-25
 
 ### Fixed

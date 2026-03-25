@@ -22,6 +22,7 @@ async def handle_intent(body: dict[str, Any]) -> dict[str, Any]:
     logger.info("Handling intent: %s", intent_name)
 
     handler = _INTENT_MAP.get(intent_name, _handle_unknown)
+    logger.info("Intent '%s' mapped to handler '%s'", intent_name, handler.__name__)
     return await handler(body)
 
 
@@ -35,9 +36,9 @@ async def _handle_play(body: dict[str, Any]) -> dict[str, Any]:
     TODO: Wire up to QueueMapper to fetch the current track from MA and
     respond with a Play directive containing the resolved stream URL.
     """
-    logger.info("PlayIntent received — stub: no MA integration yet.")
+    logger.info("Play handler received request — stub: no MA integration yet.")
     return build_response(
-        speech="Playback will start once Music Assistant integration is complete.",
+        speech="EchoWeave received your play request, but full playback integration is not complete yet.",
         should_end_session=True,
     )
 

@@ -22,6 +22,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/alexa", tags=["alexa"])
 
 
+def _json_response(
+    *,
+    payload: dict[str, Any],
+    status_code: int,
+    request_type: str,
+    intent_name: str,
+) -> JSONResponse:
+    """Return JSON response and log final status/payload for Alexa diagnostics."""
+    logger.info(
+        "Alexa response sent: request.type=%s intent=%s status=%s payload=%s",
+        request_type or "<unknown>",
+        intent_name or "<none>",
+        status_code,
+        payload,
+    )
+    return JSONResponse(content=payload, status_code=status_code, media_type="application/json")
+
+
 @router.post("")
 @router.post("/")
 async def alexa_webhook(request: Request) -> JSONResponse:
@@ -34,32 +52,45 @@ async def alexa_webhook(request: Request) -> JSONResponse:
       - SessionEndedRequest
       - PlaybackController.* commands
     """
+    request_type = ""
+    intent_name = ""
+
     try:
         body: dict[str, Any] = await request.json()
     except Exception:
         logger.warning("Failed to parse Alexa request body.")
-        return JSONResponse(
-            content=build_error_response("Invalid request body."),
+        return _json_response(
+            payload=build_error_response("Invalid request body."),
             status_code=400,
+            request_type=request_type,
+            intent_name=intent_name,
         )
 
     from app.alexa.validators import validate_alexa_request, verify_alexa_timestamp, verify_alexa_signature
     
+    request_type = body.get("request", {}).get("type", "")
+    intent_name = body.get("request", {}).get("intent", {}).get("name", "")
+    logger.info("Alexa request received: type=%s intent=%s", request_type or "<unknown>", intent_name or "<none>")
+
     # 1. Base JSON structure validation
     validation_error = validate_alexa_request(body)
     if validation_error:
         logger.warning("Alexa request validation failed: %s", validation_error)
-        return JSONResponse(
-            content=build_error_response(validation_error),
+        return _json_response(
+            payload=build_error_response(validation_error),
             status_code=400,
+            request_type=request_type,
+            intent_name=intent_name,
         )
 
     # 2. Timestamp freshness
     if not verify_alexa_timestamp(body):
         logger.warning("Alexa request timestamp is missing or too old.")
-        return JSONResponse(
-            content=build_error_response("Request timestamp is too old."),
+        return _json_response(
+            payload=build_error_response("Request timestamp is too old."),
             status_code=400,
+            request_type=request_type,
+            intent_name=intent_name,
         )
 
     # 3. Request Signature Verification
@@ -72,15 +103,12 @@ async def alexa_webhook(request: Request) -> JSONResponse:
     raw_body = await request.body()
     if not await verify_alexa_signature(request, raw_body, enforce=enforce):
         logger.warning("Alexa request signature verification failed.")
-        return JSONResponse(
-            content=build_error_response("Invalid request signature."),
+        return _json_response(
+            payload=build_error_response("Invalid request signature."),
             status_code=400,
+            request_type=request_type,
+            intent_name=intent_name,
         )
-
-    request_type = body.get("request", {}).get("type", "")
-    intent_name = body.get("request", {}).get("intent", {}).get("name", "")
-    logger.info("Alexa request received: type=%s intent=%s", request_type, intent_name or "<none>")
-    logger.info("Alexa request.type=%s", request_type)
 
     try:
         if request_type == "LaunchRequest":
@@ -90,45 +118,80 @@ async def alexa_webhook(request: Request) -> JSONResponse:
                 logger.info("LaunchRequest handled successfully.")
                 logger.info("LaunchRequest response payload: %s", response)
                 logger.info("LaunchRequest HTTP status: %s", status_code)
-                return JSONResponse(content=response, status_code=status_code)
+                return _json_response(
+                    payload=response,
+                    status_code=status_code,
+                    request_type=request_type,
+                    intent_name=intent_name,
+                )
             except Exception:
                 logger.exception("LaunchRequest handling failed.")
                 raise
 
         elif request_type == "IntentRequest":
             result = await handle_intent(body)
-            return JSONResponse(content=result)
+            return _json_response(
+                payload=result,
+                status_code=200,
+                request_type=request_type,
+                intent_name=intent_name,
+            )
 
         elif request_type.startswith("AudioPlayer."):
             result = await handle_playback_event(body)
-            return JSONResponse(content=result)
+            return _json_response(
+                payload=result,
+                status_code=200,
+                request_type=request_type,
+                intent_name=intent_name,
+            )
 
         elif request_type.startswith("PlaybackController."):
             # TODO: Implement PlaybackController commands.
             logger.info("PlaybackController request received: %s", request_type)
-            return JSONResponse(content=build_response())
+            return _json_response(
+                payload=build_response(),
+                status_code=200,
+                request_type=request_type,
+                intent_name=intent_name,
+            )
 
         elif request_type == "SessionEndedRequest":
             reason = body.get("request", {}).get("reason", "unknown")
             logger.info("Session ended: %s", reason)
-            return JSONResponse(content=build_response())
+            return _json_response(
+                payload=build_response(),
+                status_code=200,
+                request_type=request_type,
+                intent_name=intent_name,
+            )
 
         else:
             logger.warning("Unhandled Alexa request type: %s", request_type)
-            return JSONResponse(content=build_response())
+            return _json_response(
+                payload=build_response(),
+                status_code=200,
+                request_type=request_type,
+                intent_name=intent_name,
+            )
 
     except Exception:
         logger.exception("Unhandled error processing Alexa request.")
-        return JSONResponse(
-            content=build_error_response("Internal error processing your request."),
+        return _json_response(
+            payload=build_error_response("Internal error processing your request."),
             status_code=500,
+            request_type=request_type,
+            intent_name=intent_name,
         )
 
 
 def _handle_launch() -> dict[str, Any]:
     """Respond to LaunchRequest with a welcome message."""
-    return build_response(
-        speech="Welcome to EchoWeave.",
+    logger.info("Entering _handle_launch.")
+    response = build_response(
+        speech="Welcome to EchoWeave. You can say play audio to begin.",
         reprompt="Say play audio to begin.",
         should_end_session=False,
     )
+    logger.info("_handle_launch payload: %s", response)
+    return response
