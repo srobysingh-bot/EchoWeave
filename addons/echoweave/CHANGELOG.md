@@ -5,6 +5,19 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-03-25
+
+### Fixed
+
+- Address misleading UX in Setup wizard where Phase 1 stubs (ASK CLI, automated credential management) were presented as required blockers.
+- Add manual Alexa skill setup mode enabling users to manually enter their skill ID from Amazon Developer Console without requiring unimplemented ASK automation.
+- Rename "ASK Credentials Present" to "ASK Setup (Optional in Phase 1)" and remove false dependency on ASK CLI directory existence.
+- Update SkillMetadata to track `manual_skill_configured` and `manual_ask_setup` flags for explicit manual setup mode state.
+- Add new `/setup/save-skill` endpoint and UI form field for Phase 1 users to link pre-created Alexa skills.
+- Document Phase 1 manual setup expectations and improve README Known Limitations to clarify ASK automation is Phase 2+.
+- Add comprehensive tests for manual skill entry, ASK optional labeling, and setup checklist consistency.
+- Align runtime and packaging markers to `0.2.2`.
+
 ## [0.2.1] - 2026-03-25
 
 ### Fixed

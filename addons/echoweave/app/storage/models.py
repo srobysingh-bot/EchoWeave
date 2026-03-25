@@ -53,6 +53,8 @@ class SkillMetadata(BaseModel):
     locale: str = ""
     last_deployed_at: Optional[datetime] = None
     interaction_model_version: str = ""
+    manual_skill_configured: bool = False  # True if user manually entered skill_id
+    manual_ask_setup: bool = False  # True if user manually managed ASK setup
 
 
 class PersistedConfig(BaseModel):

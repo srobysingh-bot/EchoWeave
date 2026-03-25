@@ -85,11 +85,84 @@
         <button type="submit" class="btn btn-primary">Save Configuration</button>
     </form>
 </div>
+
+<div class="setup-form">
+    <h2>Manual Alexa Skill Setup (Phase 1)</h2>
+    <p class="info-text">
+        In Phase 1, ASK automation is not yet available. If you have manually created an Alexa skill 
+        in the <a href="https://developer.amazon.com/alexa/console/ask" target="_blank">Amazon Developer Console</a>,
+        enter your skill ID below to mark the setup complete.
+    </p>
+    <form id="skill-form" onsubmit="saveSkill(event)">
+        <div class="form-group">
+            <label for="skill_id">Skill ID <span class="required">*</span></label>
+            <input type="text" id="skill_id" name="skill_id"
+                   placeholder="amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                   required>
+            <small>Find this in Amazon Developer Console > Alexa Skills > Your Skill > Settings</small>
+        </div>
+        <div class="form-group">
+            <label for="endpoint_url">Endpoint URL (optional)</label>
+            <input type="url" id="endpoint_url" name="endpoint_url"
+                   placeholder="https://echoweave.example.com/alexa">
+            <small>Auto-detected from public URL if not provided</small>
+        </div>
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="manual_ask_setup" name="manual_ask_setup">
+                I have manually configured AWS credentials and ASK CLI
+            </label>
+        </div>
+        <button type="submit" class="btn btn-success">Link Alexa Skill</button>
+    </form>
+    <div id="skill-result" class="action-result" style="display:none;"></div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const BASE_PATH = {{ (base_path | default('')) | tojson }};
+
+async function saveSkill(e) {
+    e.preventDefault();
+    const skillId = document.getElementById('skill_id').value.trim();
+    const endpointUrl = document.getElementById('endpoint_url').value.trim();
+    const manualAskSetup = document.getElementById('manual_ask_setup').checked;
+    
+    if (!skillId) {
+        alert("Please enter your Skill ID.");
+        return;
+    }
+    
+    const result = document.getElementById('skill-result');
+    result.style.display = 'block';
+    result.textContent = 'Linking skill…';
+    result.className = 'action-result info';
+    
+    try {
+        const resp = await fetch(`${BASE_PATH}/setup/save-skill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                skill_id: skillId,
+                endpoint_url: endpointUrl,
+                manual_ask_setup: manualAskSetup,
+            }),
+        });
+        const json = await resp.json();
+        result.textContent = json.message;
+        result.className = 'action-result ' + (json.success ? 'success' : 'error');
+        if (json.success) {
+            document.getElementById('skill_id').value = '';
+            document.getElementById('endpoint_url').value = '';
+            document.getElementById('manual_ask_setup').checked = false;
+            setTimeout(() => window.location.reload(), 2000);
+        }
+    } catch (e) {
+        result.textContent = 'Save failed: ' + e.message;
+        result.className = 'action-result error';
+    }
+}
 
 async function validateMA() {
     const maUrl = document.getElementById('ma_base_url').value;

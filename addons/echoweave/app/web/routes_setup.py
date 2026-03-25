@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.core.constants import APP_VERSION
 from app.dependencies import get_persistence
-from app.storage.models import PersistedConfig
+from app.storage.models import PersistedConfig, SkillMetadata
 from app.ma.client import MusicAssistantClient
 from app.diagnostics.checks import check_public_url
 from app.core.service_registry import registry
@@ -29,21 +29,22 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
     has_ma = settings.ma_configured
     has_public = settings.public_configured
     
-    # Check if ASK credentials exist
-    from pathlib import Path
-    ask_dir = Path(settings.data_dir) / "ask"
-    has_ask = ask_dir.is_dir() and any(ask_dir.iterdir())
-    
-    # Check if Skill ID stored
+    # Check if Skill ID stored (via manual setup or ASK automation)
     meta = persistence.load_skill_metadata() if persistence else None
     has_skill = bool(meta and meta.skill_id)
+    manual_skill_configured = bool(meta and meta.manual_skill_configured)
+    manual_ask_setup = bool(meta and meta.manual_ask_setup)
+    
+    # In Phase 1, ASK CLI is stubbed. Check if user manually configured.
+    # We no longer check for ASK directory that won't exist.
+    has_ask = manual_ask_setup
 
     return [
         {"step": 1, "label": "Music Assistant Reachable", "done": has_ma, "detail": "Configure MA URL"},
         {"step": 2, "label": "Music Assistant Token", "done": bool(settings.ma_token), "detail": "Provide long-lived token"},
         {"step": 3, "label": "Public URL Configured", "done": has_public, "detail": "Set public_base_url"},
         {"step": 4, "label": "Stream Endpoint Configured", "done": settings.stream_configured, "detail": "HTTPS stream endpoint"},
-        {"step": 5, "label": "ASK Credentials Present", "done": has_ask, "detail": "Configure AWS credentials"},
+        {"step": 5, "label": "ASK Setup (Optional in Phase 1)", "done": has_ask, "detail": "Manual ASK credential import"},
         {"step": 6, "label": "Alexa Skill Created", "done": has_skill, "detail": "Create or link skill"},
     ]
 
@@ -128,6 +129,54 @@ async def validate_public(payload: ValidatePublicRequest) -> JSONResponse:
         "success": success,
         "message": msg,
     })
+
+
+class SaveSkillRequest(BaseModel):
+    """Request to manually link an Alexa skill."""
+    skill_id: str
+    endpoint_url: str = ""
+    manual_ask_setup: bool = False
+
+@router.post("/save-skill")
+async def save_skill(payload: SaveSkillRequest, persistence=Depends(get_persistence)) -> JSONResponse:
+    """Save manually configured Alexa skill metadata (Phase 1 manual setup mode)."""
+    logger.info("Manual skill setup requested for skill_id: %s", payload.skill_id)
+    
+    if not payload.skill_id or not payload.skill_id.strip():
+        return JSONResponse(
+            {"success": False, "message": "Skill ID is required."},
+            status_code=400,
+        )
+    
+    if not persistence:
+        return JSONResponse(
+            {"success": False, "message": "Persistence service not available."},
+            status_code=500,
+        )
+    
+    try:
+        # Load existing metadata or create new one
+        meta = persistence.load_skill_metadata() or SkillMetadata()
+        
+        # Update with manual values
+        meta.skill_id = payload.skill_id.strip()
+        meta.endpoint_url = payload.endpoint_url.strip() if payload.endpoint_url else meta.endpoint_url
+        meta.manual_skill_configured = True
+        meta.manual_ask_setup = payload.manual_ask_setup
+        
+        # Save to persistence
+        persistence.save_skill_metadata(meta)
+        
+        return JSONResponse({
+            "success": True,
+            "message": f"Skill {payload.skill_id} linked successfully. Setup checklist will update on reload.",
+        })
+    except Exception as exc:
+        logger.exception("Error saving manual skill configuration.")
+        return JSONResponse(
+            {"success": False, "message": f"Error: {exc}"},
+            status_code=500,
+        )
 
 
 @router.post("/save")

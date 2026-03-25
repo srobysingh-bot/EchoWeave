@@ -61,6 +61,22 @@ Once installed and started, click **Open Web UI** to configure the bridge:
 2. **Public Base URLs:** Enter your public HTTPS proxy URL for the Alexa Webhook (e.g., `https://echoweave.yourdomain.com`) and for audio streaming.
 3. Click **Validate and Save**. The setup wizard will ping the endpoints to ensure readiness.
 
+### Phase 1: Manual Alexa Skill Setup
+
+Completing the setup checklist in Phase 1 requires manually creating and configuring an Alexa skill:
+
+1. Go to the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
+2. Create a new **Alexa Skills Kit (ASK)** skill with a custom model.
+3. In the skill's **Interaction Model**, add intents for `LaunchRequest` and `PlayAudio`. EchoWeave provides built-in response handlers for these.
+4. In **Endpoint**, set the default region endpoint to your public EchoWeave URL: `https://your-domain.com/alexa`
+5. Build your interaction model.
+6. Copy your **Skill ID** (format: `amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+7. Return to the EchoWeave Setup page and fill in the **Manual Alexa Skill Setup (Phase 1)** form with:
+   - Your Skill ID (copied above)
+   - Optionally: Your public HTTPS endpoint URL
+   - Checkbox if you manually configured AWS credentials
+8. Save. Your skill is now linked and should appear as ✅ **Alexa Skill Created** in the checklist.
+
 ## Important Notes & Constraints
 
 *   **Experimental Status:** EchoWeave is currently an experimental standalone bridge backend.
@@ -104,10 +120,20 @@ python -m pytest app/tests/ -v
 
 ## Known Limitations
 
-- ASK CLI wrappers are stubbed; manual Alexa skill setup required in Phase 1.
-- No Alexa request signature verification yet.
-- Session store is JSON-file-backed (not a database).
-- No multi-user / multi-device concurrent testing yet.
+### Phase 1 (Current)
+
+- **ASK Automation:** ASK CLI wrappers are stubbed. Full AWS credential management and ASK deployment automation is **Phase 2+**. 
+- **Manual Alexa Skill Setup Expected:** In Phase 1, users must manually:
+  1. Create an Alexa skill in the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
+  2. Configure the skill's HTTPS endpoint to point to the public EchoWeave URL (e.g., `https://your-domain.com/alexa`).
+  3. Enter the skill ID into EchoWeave's Setup form under **Manual Alexa Skill Setup (Phase 1)**.
+- **No Alexa request signature verification yet** — Alexa skill certificate verification and request signing are not yet implemented.
+- **Session store is JSON-file-backed** (not a database) — suitable for single-device testing but not recommended for production multi-user deployments.
+- **No multi-user / multi-device concurrent testing yet** — limited isolation between simultaneous Alexa device sessions.
+
+### Why Setup Shows "ASK Setup" as Optional
+
+In Phase 1, the Setup wizard labels the "ASK Setup" step as optional because automated ASK credential management is not yet available. This step only completes if you explicitly mark it via the manual setup form. Users *can* skip this step entirely — the core skill functionality (playback control, Music Assistant integration) works once you link your manually-created skill ID.
 
 ## License
 

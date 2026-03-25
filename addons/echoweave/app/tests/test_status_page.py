@@ -100,7 +100,7 @@ def test_debug_routes_contains_expected_paths():
     assert resp.status_code == 200
 
     payload = resp.json()
-    assert payload["version"] == "0.2.1"
+    assert payload["version"] == "0.2.2"
     assert "effective_base_path" in payload
     assert "scope_path" in payload
     assert "scope_raw_path" in payload
@@ -147,9 +147,9 @@ def test_debug_ping_ui_returns_html():
     assert "EchoWeave UI OK" in resp.text
 
 
-def test_runtime_version_is_021():
-    """Runtime APP_VERSION constant must be aligned with add-on version 0.2.1."""
-    assert APP_VERSION == "0.2.1"
+def test_runtime_version_is_022():
+    """Runtime APP_VERSION constant must be aligned with add-on version 0.2.2."""
+    assert APP_VERSION == "0.2.2"
 
 
 def test_legacy_ingress_path_setup_not_registered():
