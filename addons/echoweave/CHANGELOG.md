@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-03-25
+
+### Fixed
+
+- Improve Alexa LaunchRequest reliability by returning an explicit welcome response with `outputSpeech`, `reprompt`, and `shouldEndSession=false`.
+- Add request diagnostics logging for Alexa request type, intent name (when present), and LaunchRequest success/failure path visibility.
+- Preserve existing PlayIntent behavior while adding regression tests for launch and intent handling.
+- Align runtime and packaging markers to `0.2.1`.
+
 ## [0.2.0] - 2026-03-25
 
 ### Fixed
