@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -24,6 +24,25 @@ from app.core.constants import (
 )
 
 
+TRACKED_CONFIG_FIELDS: tuple[str, ...] = (
+    "ma_base_url",
+    "ma_token",
+    "public_base_url",
+    "stream_base_url",
+    "locale",
+    "aws_default_region",
+    "log_level",
+    "debug",
+    "allow_insecure_local_test",
+)
+
+
+def _is_set(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None
+
+
 def _load_options_json() -> dict:
     """Try to read HA add-on options from the well-known path."""
     options_file = Path(os.getenv("ECHOWEAVE_DATA_DIR", DEFAULT_DATA_DIR)) / "options.json"
@@ -31,6 +50,11 @@ def _load_options_json() -> dict:
         with open(options_file, "r", encoding="utf-8") as fh:
             return json.load(fh)
     return {}
+
+
+def load_addon_options() -> dict[str, Any]:
+    """Public helper returning Home Assistant add-on options."""
+    return _load_options_json()
 
 
 class Settings(BaseSettings):
@@ -118,16 +142,15 @@ class Settings(BaseSettings):
     def data_path(self) -> Path:
         return Path(self.data_dir)
 
-    def apply_persisted(self, persisted: Any) -> None:
-        """Overlay values from a PersistedConfig if they are set (non-empty strings)."""
+    def apply_persisted(self, persisted: Any, *, fields: tuple[str, ...] | None = None) -> None:
+        """Overlay values from a PersistedConfig for set fields."""
         if not persisted:
             return
-        if persisted.ma_base_url: self.ma_base_url = persisted.ma_base_url
-        if getattr(persisted, "ma_token", ""): self.ma_token = persisted.ma_token
-        if persisted.public_base_url: self.public_base_url = persisted.public_base_url
-        if persisted.stream_base_url: self.stream_base_url = persisted.stream_base_url
-        if persisted.locale: self.locale = persisted.locale
-        if persisted.aws_default_region: self.aws_default_region = persisted.aws_default_region
+        target_fields = fields or TRACKED_CONFIG_FIELDS
+        for field in target_fields:
+            value = getattr(persisted, field, None)
+            if _is_set(value):
+                setattr(self, field, value)
 
 
 def load_settings() -> Settings:

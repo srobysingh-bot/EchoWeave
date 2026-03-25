@@ -18,7 +18,8 @@ export ECHOWEAVE_AWS_DEFAULT_REGION="$(bashio::config 'aws_default_region')"
 export ECHOWEAVE_LOCALE="$(bashio::config 'locale')"
 export ECHOWEAVE_LOG_LEVEL="$(bashio::config 'log_level')"
 export ECHOWEAVE_DEBUG="$(bashio::config 'debug')"
-export ECHOWEAVE_ALLOW_INSECURE="$(bashio::config 'allow_insecure_local_test')"
+export ECHOWEAVE_ALLOW_INSECURE_LOCAL_TEST="$(bashio::config 'allow_insecure_local_test')"
+export ECHOWEAVE_ALLOW_INSECURE="$ECHOWEAVE_ALLOW_INSECURE_LOCAL_TEST"
 export ECHOWEAVE_DATA_DIR="/data"
 
 if [ -z "$ECHOWEAVE_MA_BASE_URL" ]; then
@@ -31,7 +32,7 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.1.8 starting"
+bashio::log.info " EchoWeave v0.1.9 starting"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " MA URL:        ${ECHOWEAVE_MA_BASE_URL:-<not set>}"
 bashio::log.info " Public URL:    ${ECHOWEAVE_PUBLIC_BASE_URL:-<not set>}"

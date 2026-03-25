@@ -50,3 +50,16 @@ async def test_public_local_http_reported_as_local_test(monkeypatch):
     assert result["key"] == "public_url_reachable"
     assert result["status"] == "warn"
     assert "local testing" in result["message"].lower()
+
+
+@pytest.mark.anyio
+async def test_trycloudflare_https_stream_not_classified_insecure(monkeypatch):
+    monkeypatch.setattr("app.ma.health.httpx.AsyncClient", lambda timeout=10: _FakeClient(200))
+
+    result = await MAHealthChecker.check_stream_url(
+        "https://doom-latinas-ethnic-collaborative.trycloudflare.com"
+    )
+
+    assert result["key"] == "stream_url_valid"
+    assert result["status"] == "ok"
+    assert "insecure" not in result["message"].lower()

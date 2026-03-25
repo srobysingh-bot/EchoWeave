@@ -14,19 +14,21 @@
             <tr>
                 <th>Setting</th>
                 <th>Value</th>
+                <th>Source</th>
             </tr>
         </thead>
         <tbody>
-            {% for key, value in config.items() %}
+            {% for key, row in config.items() %}
             <tr>
                 <td>{{ key }}</td>
                 <td>
-                    {% if value == '****' or (value is string and value.startswith('****')) %}
-                    <span class="redacted">{{ value }}</span>
+                    {% if row.value == '****' or (row.value is string and row.value.startswith('****')) %}
+                    <span class="redacted">{{ row.value }}</span>
                     {% else %}
-                    {{ value }}
+                    {{ row.value }}
                     {% endif %}
                 </td>
+                <td><code>{{ row.source }}</code></td>
             </tr>
             {% endfor %}
         </tbody>

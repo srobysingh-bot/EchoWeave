@@ -11,11 +11,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.core.constants import APP_VERSION
-from app.dependencies import get_persistence, get_settings
+from app.dependencies import get_persistence
 from app.storage.models import PersistedConfig
 from app.ma.client import MusicAssistantClient
 from app.diagnostics.checks import check_public_url
 from app.core.service_registry import registry
+from app.settings import Settings
 from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,14 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
 
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
-async def setup_page(request: Request, settings=Depends(get_settings), persistence=Depends(get_persistence)) -> HTMLResponse:
+async def setup_page(request: Request, persistence=Depends(get_persistence)) -> HTMLResponse:
     """Render the setup wizard."""
+    config_svc = registry.get_optional("config_service")
+    if config_svc:
+        settings = config_svc.settings
+    else:
+        settings = Settings()
+
     checklist = _build_checklist(settings, persistence)
     complete = sum(1 for item in checklist if item["done"])
     total = len(checklist)
@@ -130,8 +137,12 @@ async def save_config(config: PersistedConfig, persistence=Depends(get_persisten
         config_svc = registry.get_optional("config_service")
         if config_svc:
             config_svc.save_persisted(config)
+            settings = config_svc.settings
         elif persistence:
             persistence.save_config(config)
+            settings = config
+        else:
+            settings = config
 
         # Recreate MA Client with new settings
         existing_client = registry.get_optional("ma_client")
@@ -142,8 +153,8 @@ async def save_config(config: PersistedConfig, persistence=Depends(get_persisten
                 logger.debug("Existing MA client close failed during config save.", exc_info=True)
 
         new_client = MusicAssistantClient(
-            base_url=config.ma_base_url,
-            token=config.ma_token
+            base_url=settings.ma_base_url,
+            token=settings.ma_token
         )
         registry.register("ma_client", new_client)
             

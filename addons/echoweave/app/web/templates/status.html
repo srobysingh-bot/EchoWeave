@@ -35,4 +35,29 @@
     </div>
     {% endfor %}
 </div>
+
+<div class="config-summary" style="margin-top: 1.5rem;">
+    <h2>Diagnostics</h2>
+    <table class="config-table">
+        <thead>
+            <tr>
+                <th>Setting</th>
+                <th>Effective Value</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>public_base_url</td>
+                <td>{{ diagnostics.public_base_url.value }}</td>
+                <td><code>{{ diagnostics.public_base_url.source }}</code></td>
+            </tr>
+            <tr>
+                <td>stream_base_url</td>
+                <td>{{ diagnostics.stream_base_url.value }}</td>
+                <td><code>{{ diagnostics.stream_base_url.source }}</code></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
 {% endblock %}

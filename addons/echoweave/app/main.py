@@ -100,11 +100,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.storage.persistence import PersistenceService
     persistence = PersistenceService(settings.data_dir)
     registry.register("persistence", persistence)
-    
-    # Overlay saved config
-    persisted_config = persistence.load_config()
-    if persisted_config:
-        settings.apply_persisted(persisted_config)
+
+    # Config service resolves effective runtime settings (addon/env/persisted/default).
+    from app.core.config_service import ConfigService
+    config_svc = ConfigService(settings, persistence)
+    config_svc.resolve_effective()
+    config_svc.log_effective_runtime()
+    registry.register("config_service", config_svc)
 
     # MA client
     from app.ma.client import MusicAssistantClient
@@ -151,11 +153,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     health_svc.register_check(skill_check)
 
     registry.register("health", health_svc)
-
-    # Config service
-    from app.core.config_service import ConfigService
-    config_svc = ConfigService(settings, persistence)
-    registry.register("config_service", config_svc)
 
     logger.info("All services initialised.")
 

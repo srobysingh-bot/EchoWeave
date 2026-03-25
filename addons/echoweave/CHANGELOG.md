@@ -5,6 +5,18 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.9] - 2026-03-25
+
+### Fixed
+
+- Make Home Assistant add-on options the highest-priority startup config source and prevent stale persisted values from overriding runtime checks.
+- Add source-aware config resolution (`addon_options`, `environment`, `persisted_config`, `default`) and expose it on the Config page.
+- Sync stale persisted config automatically to the effective runtime values on startup as a one-time repair path.
+- Add startup logs for effective `ma_base_url`, `public_base_url`, `stream_base_url`, and `allow_insecure_local_test` with URL origin-only redaction.
+- Ensure setup save updates persistence without breaking add-on option precedence on restart.
+- Add status-page diagnostics for effective public/stream URLs and their sources.
+- Align runtime and packaging markers to `0.1.9`.
+
 ## [0.1.8] - 2026-03-24
 
 ### Fixed

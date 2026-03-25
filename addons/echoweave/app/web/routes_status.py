@@ -22,7 +22,10 @@ templates = Jinja2Templates(directory="app/web/templates")
 async def status_page(request: Request) -> HTMLResponse:
     """Render the status dashboard with live health indicators."""
     from app.dependencies import get_health_service
+    from app.core.service_registry import registry
+
     health_svc = get_health_service()
+    config_svc = registry.get_optional("config_service")
 
     items: list[dict[str, Any]] = [
         {"label": "Add-on Service", "status": "ok", "detail": f"v{APP_VERSION} running"}
@@ -53,6 +56,15 @@ async def status_page(request: Request) -> HTMLResponse:
         item["detail"] for item in items if item["status"] == "fail"
     ]
 
+    diagnostics = {
+        "public_base_url": {"value": "", "source": "default"},
+        "stream_base_url": {"value": "", "source": "default"},
+    }
+    if config_svc:
+        with_sources = config_svc.get_effective_with_sources()
+        diagnostics["public_base_url"] = with_sources.get("public_base_url", diagnostics["public_base_url"])
+        diagnostics["stream_base_url"] = with_sources.get("stream_base_url", diagnostics["stream_base_url"])
+
     return templates.TemplateResponse(
         request,
         "status.html",
@@ -60,6 +72,7 @@ async def status_page(request: Request) -> HTMLResponse:
             "base_path": get_ingress_base_path(request),
             "items": items,
             "errors": errors,
+            "diagnostics": diagnostics,
             "version": APP_VERSION,
             "timestamp": datetime.utcnow().isoformat() + "Z",
         },

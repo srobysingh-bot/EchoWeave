@@ -36,19 +36,33 @@ async def config_page(request: Request) -> HTMLResponse:
 
     settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else dict(vars(settings))
 
-    config_summary = redact_dict({
-        "ma_base_url": settings_dict.get("ma_base_url", ""),
-        "ma_token": settings_dict.get("ma_token", ""),
-        "public_base_url": settings_dict.get("public_base_url", ""),
-        "stream_base_url": settings_dict.get("stream_base_url", ""),
-        "locale": settings_dict.get("locale", "en-US"),
-        "aws_default_region": settings_dict.get("aws_default_region", "us-east-1"),
-        "log_level": settings_dict.get("log_level", "info"),
-        "debug": bool(settings_dict.get("debug", False)),
-    })
+    if config_svc:
+        with_sources = config_svc.get_effective_with_sources()
+    else:
+        with_sources = {
+            "ma_base_url": {"value": settings_dict.get("ma_base_url", ""), "source": "default"},
+            "ma_token": {"value": settings_dict.get("ma_token", ""), "source": "default"},
+            "public_base_url": {"value": settings_dict.get("public_base_url", ""), "source": "default"},
+            "stream_base_url": {"value": settings_dict.get("stream_base_url", ""), "source": "default"},
+            "locale": {"value": settings_dict.get("locale", "en-US"), "source": "default"},
+            "aws_default_region": {"value": settings_dict.get("aws_default_region", "us-east-1"), "source": "default"},
+            "log_level": {"value": settings_dict.get("log_level", "info"), "source": "default"},
+            "debug": {"value": bool(settings_dict.get("debug", False)), "source": "default"},
+            "allow_insecure_local_test": {
+                "value": bool(settings_dict.get("allow_insecure_local_test", False)),
+                "source": "default",
+            },
+        }
 
-    if settings_dict.get("ma_token"):
-        config_summary["ma_token"] = "**** (set)"
+    config_summary: dict[str, dict[str, Any]] = {}
+    for key, entry in with_sources.items():
+        redacted_value = redact_dict({key: entry.get("value", "")}).get(key, "")
+        if key == "ma_token" and entry.get("value"):
+            redacted_value = "**** (set)"
+        config_summary[key] = {
+            "value": redacted_value,
+            "source": entry.get("source", "default"),
+        }
 
     return templates.TemplateResponse(
         request,

@@ -65,4 +65,5 @@ class PersistedConfig(BaseModel):
     aws_default_region: str = "us-east-1"
     log_level: str = "info"
     debug: bool = False
+    allow_insecure_local_test: bool = False
     updated_at: datetime = Field(default_factory=datetime.utcnow)
