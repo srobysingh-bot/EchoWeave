@@ -271,6 +271,7 @@ export function createEnv(overrides?: Partial<Env>): Env {
     HOME_SESSION: homeSessionNamespace,
     STREAM_TOKEN_SIGNING_SECRET: "stream-secret",
     EDGE_ORIGIN_SHARED_SECRET: "edge-origin-secret",
+    ADMIN_API_KEY: "test-admin-key",
     ALEXA_SIGNATURE_ENFORCE: "false",
     STREAM_TOKEN_TTL_SECONDS: "300",
     ...overrides,

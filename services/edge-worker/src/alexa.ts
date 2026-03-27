@@ -85,15 +85,23 @@ function buildAlexaSpeechResponse(text: string): Record<string, unknown> {
 }
 
 export async function handleAlexaWebhook(request: Request, env: Env): Promise<Response> {
+  return handleAlexaWebhookWithContext(request, env, request.headers.get("x-request-id") ?? crypto.randomUUID());
+}
+
+export async function handleAlexaWebhookWithContext(request: Request, env: Env, requestId: string): Promise<Response> {
   if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
 
   if (!(await validateAlexaSignature(request, env))) {
+    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: "signature_validation_failed" }));
     return json(buildAlexaSpeechResponse("Request signature validation failed."), 401);
   }
 
   const envelope = (await request.clone().json()) as AlexaRequestEnvelope;
   const invalidReason = validateEnvelope(envelope);
-  if (invalidReason) return json({ error: invalidReason }, 400);
+  if (invalidReason) {
+    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: invalidReason }));
+    return json({ error: invalidReason }, 400);
+  }
 
   const requestType = envelope.request?.type ?? "";
   if (requestType === "LaunchRequest") {
@@ -114,6 +122,7 @@ export async function handleAlexaWebhook(request: Request, env: Env): Promise<Re
 
   const home = await resolveHomeByAlexaUser(env.ECHOWEAVE_DB, alexaUserId);
   if (!home) {
+    console.warn(JSON.stringify({ event: "home_resolution_failed", request_id: requestId, alexa_user_id_present: true }));
     return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 404);
   }
 
@@ -133,6 +142,14 @@ export async function handleAlexaWebhook(request: Request, env: Env): Promise<Re
   });
 
   if (!doResp.ok) {
+    try {
+      const errorPayload = (await doResp.clone().json()) as { error?: string };
+      if ((errorPayload.error ?? "").includes("timeout")) {
+        console.warn(JSON.stringify({ event: "connector_dispatch_timeout", request_id: requestId, tenant_id: home.tenant_id, home_id: home.home_id }));
+      }
+    } catch {
+      // ignore parse failures
+    }
     return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 503);
   }
 

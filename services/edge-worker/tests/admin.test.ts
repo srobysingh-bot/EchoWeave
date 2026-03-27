@@ -3,12 +3,17 @@ import { describe, expect, test } from "vitest";
 import { handleAdminRequest } from "../src/admin";
 import { createEnv, MockD1Database } from "./mock_env";
 
+const adminHeaders = {
+  "content-type": "application/json",
+  authorization: "Bearer test-admin-key",
+};
+
 describe("admin provisioning routes", () => {
   test("POST /v1/admin/homes creates a home", async () => {
     const env = createEnv();
     const req = new Request("https://worker/v1/admin/homes", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: adminHeaders,
       body: JSON.stringify({
         tenant_id: "tenant-a",
         home_id: "home-a",
@@ -31,7 +36,7 @@ describe("admin provisioning routes", () => {
     const env = createEnv();
     const req = new Request("https://worker/v1/admin/users", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: adminHeaders,
       body: JSON.stringify({ user_id: "user-a", tenant_id: "tenant-a", email: "user@example.com" }),
     });
 
@@ -48,7 +53,7 @@ describe("admin provisioning routes", () => {
     await handleAdminRequest(
       new Request("https://worker/v1/admin/homes", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: adminHeaders,
         body: JSON.stringify({ tenant_id: "tenant-a", home_id: "home-a" }),
       }),
       env,
@@ -57,7 +62,7 @@ describe("admin provisioning routes", () => {
     await handleAdminRequest(
       new Request("https://worker/v1/admin/users", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: adminHeaders,
         body: JSON.stringify({ user_id: "user-a", tenant_id: "tenant-a", email: "user@example.com" }),
       }),
       env,
@@ -67,7 +72,7 @@ describe("admin provisioning routes", () => {
     const resp = await handleAdminRequest(
       new Request("https://worker/v1/admin/alexa-accounts/link", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: adminHeaders,
         body: JSON.stringify({
           alexa_user_id: "amzn-account-1",
           user_id: "user-a",
@@ -112,7 +117,10 @@ describe("admin provisioning routes", () => {
     });
 
     const resp = await handleAdminRequest(
-      new Request("https://worker/v1/admin/homes/tenant-a/home-a/status", { method: "GET" }),
+      new Request("https://worker/v1/admin/homes/tenant-a/home-a/status", {
+        method: "GET",
+        headers: { authorization: "Bearer test-admin-key" },
+      }),
       env,
       "/v1/admin/homes/tenant-a/home-a/status",
     );
@@ -143,7 +151,7 @@ describe("admin provisioning routes", () => {
     const resp = await handleAdminRequest(
       new Request("https://worker/v1/admin/connectors/bootstrap", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: adminHeaders,
         body: JSON.stringify({
           tenant_id: "tenant-a",
           home_id: "home-a",

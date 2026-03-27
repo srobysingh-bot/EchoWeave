@@ -35,6 +35,8 @@ You can add this repository to your Home Assistant instance by following these s
 - Public HTTPS and SSL required for Alexa skill endpoint in production.
 - Worker Alexa signature verification now performs request-body signature checks using Alexa cert material, timestamp freshness enforcement, and cert URL/SAN/time validation.
 - Production onboarding is API-driven; manual SQL seeding is no longer required for home/user/link provisioning.
+- Admin APIs are now bearer-protected via `ADMIN_API_KEY` and should never be exposed without a gateway policy.
+- Worker supports per-route rate limits via `RATE_LIMIT_ALEXA_PER_MINUTE`, `RATE_LIMIT_ADMIN_PER_MINUTE`, and `RATE_LIMIT_CONNECTOR_REGISTER_PER_MINUTE`.
 
 ## Edge Mode Required Fields
 
@@ -65,3 +67,6 @@ The Worker now exposes deterministic onboarding and linking endpoints:
 These endpoints back the edge-mode provisioning lifecycle and eliminate default-home fallback behavior.
 
 For exact provisioning and linking commands, see docs/WORKER_ONBOARDING.md.
+
+For operator procedures and incident handling, see docs/OPERATOR_RUNBOOK.md.
+For pre-release sign-off, use docs/RELEASE_CHECKLIST.md.

@@ -275,17 +275,27 @@ export async function getHomeStatus(env: Env, tenantIdRaw: string, homeIdRaw: st
     .first<{ count: number }>();
 
   let connectorOnline = false;
+  let lastConnectorActivity = "";
   try {
     const doId = env.HOME_SESSION.idFromName(`${tenantId}:${homeId}`);
     const stub = env.HOME_SESSION.get(doId);
     const resp = await stub.fetch("https://home-session/status");
     if (resp.ok) {
-      const body = (await resp.json()) as { online?: boolean };
+      const body = (await resp.json()) as {
+        online?: boolean;
+        last_metadata?: { received_at?: string };
+      };
       connectorOnline = Boolean(body.online);
+      lastConnectorActivity = body.last_metadata?.received_at ?? "";
     }
   } catch {
     connectorOnline = false;
   }
+
+  const hasOrigin = Boolean(home.origin_base_url);
+  const hasQueueBinding = Boolean(home.alexa_source_queue_id);
+  const hasConnectorRegistration = Boolean(home.connector_id) && Boolean(connector);
+  const alexaLinked = Number(mappings?.count ?? 0) > 0;
 
   return {
     tenant_id: tenantId,
@@ -299,8 +309,17 @@ export async function getHomeStatus(env: Env, tenantIdRaw: string, homeIdRaw: st
       registration_status: connector?.registration_status ?? "not-registered",
       online: connectorOnline,
       updated_at: connector?.updated_at ?? "",
+      last_websocket_activity_at: lastConnectorActivity,
     },
-    alexa_account_linked: Number(mappings?.count ?? 0) > 0,
+    alexa_account_linked: alexaLinked,
     alexa_mapping_count: Number(mappings?.count ?? 0),
+    readiness: {
+      has_origin_url: hasOrigin,
+      has_queue_binding: hasQueueBinding,
+      has_connector_registration: hasConnectorRegistration,
+      connector_online: connectorOnline,
+      alexa_account_linked: alexaLinked,
+      provisioning_complete: hasOrigin && hasConnectorRegistration && alexaLinked,
+    },
   };
 }
