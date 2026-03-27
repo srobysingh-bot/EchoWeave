@@ -28,6 +28,16 @@ export async function handleConnectorRegister(request: Request, env: Env): Promi
   if (!payload.connector_id || !payload.connector_secret || !payload.tenant_id || !payload.home_id) {
     return badRequest("connector_id, connector_secret, tenant_id, home_id are required");
   }
+  if (payload.origin_base_url) {
+    try {
+      const parsed = new URL(payload.origin_base_url);
+      if (!parsed.protocol.startsWith("http")) {
+        return badRequest("origin_base_url must be an http(s) URL");
+      }
+    } catch {
+      return badRequest("origin_base_url must be an absolute URL");
+    }
+  }
 
   const homeExists = await env.ECHOWEAVE_DB
     .prepare("SELECT id FROM homes WHERE id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1")

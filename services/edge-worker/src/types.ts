@@ -47,6 +47,8 @@ export interface ConnectorRegistrationPayload {
   connector_secret: string;
   tenant_id: string;
   home_id: string;
+  origin_base_url?: string;
+  alexa_source_queue_id?: string;
   capabilities?: Record<string, unknown>;
 }
 

@@ -81,11 +81,21 @@ export async function upsertConnectorRegistration(
     .prepare(
       `
       UPDATE homes
-      SET connector_id = ?, updated_at = CURRENT_TIMESTAMP
+      SET
+        connector_id = ?,
+        origin_base_url = COALESCE(NULLIF(?, ''), origin_base_url),
+        alexa_source_queue_id = COALESCE(NULLIF(?, ''), alexa_source_queue_id),
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND tenant_id = ?
       `,
     )
-    .bind(payload.connector_id, payload.home_id, payload.tenant_id)
+    .bind(
+      payload.connector_id,
+      payload.origin_base_url ?? "",
+      payload.alexa_source_queue_id ?? "",
+      payload.home_id,
+      payload.tenant_id,
+    )
     .run();
 }
 

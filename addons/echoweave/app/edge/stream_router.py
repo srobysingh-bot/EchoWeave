@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.service_registry import registry
-from app.edge.auth import verify_edge_request
+from app.edge.auth import extract_edge_auth_headers, verify_edge_request
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +22,12 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         raise HTTPException(status_code=503, detail="Service unavailable")
 
     settings = config_svc.settings
+    if not settings.is_edge_mode:
+        raise HTTPException(status_code=404, detail="edge-stream-not-enabled")
+
     shared_secret = settings.edge_shared_secret
     path = request.url.path
-    ts = request.headers.get("x-edge-timestamp", "")
-    sig = request.headers.get("x-edge-signature", "")
+    ts, sig = extract_edge_auth_headers(request.headers)
 
     if not verify_edge_request(
         shared_secret=shared_secret,
@@ -46,7 +48,8 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     if range_header:
         headers["Range"] = range_header
 
-    client = httpx.AsyncClient(timeout=30)
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
     upstream_request = client.build_request("GET", source_url, headers=headers)
     upstream = await client.send(upstream_request, stream=True)
 

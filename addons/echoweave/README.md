@@ -1,37 +1,39 @@
 # EchoWeave
 
-**Alexa bridge backend for Music Assistant — Home Assistant add-on.**
+Alexa bridge backend for Music Assistant as a Home Assistant add-on.
 
 ## What EchoWeave Is
 
-EchoWeave is a Home Assistant add-on that runs a backend bridge service between
-[Music Assistant](https://music-assistant.io/) and Amazon Alexa devices. It:
+EchoWeave runs local services for Music Assistant integration and connector duties. In production, public Alexa ingress is handled by the edge worker. The add-on:
 
-1. Hosts the Alexa skill endpoint.
-2. Connects to the Music Assistant API using long-lived tokens.
-3. Stores playback/session state for Alexa devices.
-4. Provides a local admin UI for setup, status, logs, and diagnostics.
-5. Helps automate and validate Alexa skill setup.
+1. Connects to Music Assistant with long-lived token auth.
+2. Maintains local configuration, diagnostics, and admin UI.
+3. In edge mode, maintains outbound connector websocket to the Worker and Durable Object.
+4. Exposes secure local stream origin route for Worker proxy.
+5. Preserves legacy and connector modes for compatibility.
 
-### Architecture
+### Edge-First Architecture
 
 ```
-┌─────────┐     HTTPS      ┌───────────┐     HTTP/WS     ┌──────────────────┐
-│  Alexa  │ ──────────────▶ │ EchoWeave │ ──────────────▶ │ Music Assistant  │
-│ Device  │ ◀────────────── │  Add-on   │ ◀────────────── │     Server       │
-└─────────┘  Audio directives└───────────┘  Queue/stream   └──────────────────┘
-      │                           │
-      │  Fetches audio stream     │  Provides admin UI via
-      ▼  from public HTTPS URL    │  HA ingress / reverse proxy
-┌─────────────┐                   ▼
-│ Stream CDN  │            ┌─────────────┐
-│ / Proxy     │            │ HA Sidebar  │
-└─────────────┘            └─────────────┘
+┌─────────┐   HTTPS   ┌──────────────────┐   WS+Command   ┌───────────────┐
+│  Alexa  │ ────────▶ │ services/edge-   │ ─────────────▶ │ EchoWeave     │
+│ Device  │ ◀──────── │ worker           │ ◀───────────── │ Add-on (edge) │
+└─────────┘ directives└──────────────────┘ responses       └──────┬────────┘
+  │                                      │                     │
+  │ stream fetch from Worker             │ stream proxy        │ resolve queue/item/stream
+  ▼                                      ▼                     ▼
+┌──────────────────┐                 ┌────────────────────┐   ┌──────────────────┐
+│ /v1/stream/:token│ ──────────────▶ │ /edge/stream/...   │ ─▶│ Music Assistant  │
+└──────────────────┘                 └────────────────────┘   └──────────────────┘
 ```
 
-**Important:** EchoWeave does *not* directly push audio to Alexa. Instead, it
-responds to Alexa skill requests with playable HTTPS stream URLs. The Alexa
-device then fetches and plays the stream itself.
+Important: Alexa is the playback device. The add-on resolves media context from Music Assistant and the Worker returns AudioPlayer.Play with signed stream token URL.
+
+## Runtime Modes
+
+- legacy: direct add-on Alexa ingress and legacy stream handling.
+- connector: legacy cloud-backend heartbeat polling connector flow.
+- edge: edge worker ingress plus persistent outbound connector websocket and secure local edge stream route.
 
 ## Installation (GitHub Repository)
 
@@ -83,12 +85,26 @@ Completing the setup checklist in Phase 1 requires manually creating and configu
 *   **Experimental Status:** EchoWeave is currently an experimental standalone bridge backend.
 *   **Public HTTPS / SSL Required:** Alexa AudioPlayer skills **require** a valid, public HTTPS endpoint secured by a trusted SSL certificate. You *must* have a reverse proxy (like Nginx Proxy Manager or Cloudflare Tunnels) exposing the add-on's port to the public internet. Local IP addresses, unencrypted HTTP, and internal hostnames (like `.local`) will be rejected by Alexa and by EchoWeave's internal security validations.
 
-## Reverse Proxy
+## Edge Mode Configuration
 
-The Alexa webhook **must** be reachable via public HTTPS. Do **not** rely on
-Home Assistant ingress for this — configure a reverse proxy (e.g., NGINX,
-Caddy, Cloudflare Tunnel) to forward `https://your-domain/alexa` to the add-on
-on port 5000.
+Set these options in Home Assistant add-on configuration when mode is edge:
+
+- mode: edge
+- worker_base_url: https://your-worker-domain
+- tunnel_base_url: https://your-home-origin-domain
+- edge_shared_secret: shared HMAC secret used by Worker to fetch local stream origin
+- connector_id
+- connector_secret
+- tenant_id
+- home_id
+- alexa_source_queue_id
+- ma_base_url
+- ma_token
+
+## Reverse Proxy and Tunnel
+
+In edge mode, Alexa webhook should target Worker endpoint /v1/alexa.
+The add-on tunnel URL should be reachable by Worker for /edge/stream requests.
 
 ## Development
 
@@ -121,14 +137,14 @@ python -m pytest app/tests/ -v
 
 ## Known Limitations
 
-### Phase 1 (Current)
+### Current
 
 - **ASK Automation:** ASK CLI wrappers are stubbed. Full AWS credential management and ASK deployment automation is **Phase 2+**. 
 - **Manual Alexa Skill Setup Expected:** In Phase 1, users must manually:
   1. Create an Alexa skill in the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
   2. Configure the skill's HTTPS endpoint to point to the public EchoWeave URL (e.g., `https://your-domain.com/alexa`).
   3. Enter the skill ID into EchoWeave's Setup form under **Manual Alexa Skill Setup (Phase 1)**.
-- **No Alexa request signature verification yet** — Alexa skill certificate verification and request signing are not yet implemented.
+- Worker Alexa signature verification is only partially implemented today (header and cert URL checks plus timestamp checks). Full cryptographic verification remains pending.
 - **Session store is JSON-file-backed** (not a database) — suitable for single-device testing but not recommended for production multi-user deployments.
 - **No multi-user / multi-device concurrent testing yet** — limited isolation between simultaneous Alexa device sessions.
 

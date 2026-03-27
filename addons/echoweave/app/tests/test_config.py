@@ -66,6 +66,28 @@ def test_connector_configured_property():
     assert s2.connector_configured is False
 
 
+def test_edge_mode_requires_edge_runtime_fields():
+    with pytest.raises(Exception):
+        Settings(mode="edge", worker_base_url="https://worker.example.com")
+
+
+def test_edge_mode_connector_configured_and_redacted():
+    s = Settings(
+        mode="edge",
+        worker_base_url="https://worker.example.com",
+        tunnel_base_url="https://origin.example.com",
+        edge_shared_secret="edge-secret",
+        connector_id="c1",
+        connector_secret="conn-secret",
+        tenant_id="tenant-a",
+        home_id="home-a",
+    )
+    assert s.connector_configured is True
+    assert s.is_edge_mode is True
+    assert s.connector_settings_redacted["connector_secret"] == "****"
+    assert s.connector_settings_redacted["edge_shared_secret"] == "****"
+
+
 def test_ui_auth_property():
     """ui_auth_enabled should reflect whether a password is set."""
     assert Settings(ui_password="").ui_auth_enabled is False

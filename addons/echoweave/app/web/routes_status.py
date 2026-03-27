@@ -129,7 +129,7 @@ async def status_page(request: Request) -> HTMLResponse:
     })
     items.append({
         "label": "Connector Heartbeat",
-        "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
+        "status": "ok" if connector_runtime["last_heartbeat_status"] in {"online", "connected"} else "warn",
         "detail": connector_runtime["last_heartbeat_status"],
     })
 

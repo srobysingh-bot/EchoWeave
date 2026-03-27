@@ -10,6 +10,8 @@ This migration moves EchoWeave from prototype mixed ingress to an edge-first arc
 - Add-on keeps an outbound persistent WebSocket connection to the Worker in edge mode.
 - Music Assistant is treated as media/queue authority, not Echo playback controller.
 
+Milestone target in this document: Alexa request -> Worker -> Durable Object -> add-on prepare_play -> MA resolution -> Worker stream token -> Worker proxy stream.
+
 ## What Changed
 
 ### New Worker Project
@@ -55,6 +57,8 @@ In `mode=edge`:
 - connector polling heartbeat loop is not used for playback command path
 - add-on registers connector with Worker and opens persistent outbound websocket
 - add-on serves secure local stream route for Worker-origin fetches
+- add-on sends connector hello/auth metadata envelopes over websocket
+- add-on command dispatch returns resolver-style payloads for Alexa-as-player
 
 ### MA Client Refactor
 
@@ -74,6 +78,24 @@ These methods provide metadata and stream source resolution for Alexa-as-player 
 - Direct add-on Alexa ingress (`/alexa`) is legacy-only and disabled in `mode=edge`.
 - Connector polling/heartbeat command loop remains only for legacy connector mode and is not the edge playback path.
 - `services/cloud-backend` is now prototype/dev-only and no longer the target production ingress.
+
+## Worker Contract Alignment
+
+Current contract used by add-on edge websocket client and Worker Durable Object:
+
+- DO -> add-on command envelope: type=command, request_id, command_type, payload
+- add-on -> DO command response envelope: type=response, request_id, ok, payload or structured error
+- add-on -> DO event envelope: connector_hello and connector_auth for connector state metadata
+
+Connector registration payload now supports:
+
+- connector_id
+- connector_secret
+- tenant_id
+- home_id
+- origin_base_url
+- alexa_source_queue_id
+- capabilities
 
 ## Running Worker Locally
 
@@ -135,3 +157,8 @@ Implemented first path for “Alexa, ask EchoWeave to play”:
 7. Worker returns Alexa `AudioPlayer.Play` directive.
 8. Alexa fetches Worker stream URL.
 9. Worker validates token and proxies audio from add-on secure stream origin.
+
+## Known Partial Items
+
+- Full Alexa certificate chain and body signature verification in Worker is still incomplete.
+- Production tunnel deployment and per-home secret lifecycle are external infrastructure tasks.

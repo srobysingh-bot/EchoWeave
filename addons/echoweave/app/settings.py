@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -131,6 +133,16 @@ class Settings(BaseSettings):
     def _strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/") if v else v
 
+    @field_validator("backend_url", "worker_base_url", "tunnel_base_url", mode="after")
+    @classmethod
+    def _normalise_connector_urls(cls, v: str) -> str:
+        if not v:
+            return ""
+        parsed = urlparse(v)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("must be an absolute http(s) URL")
+        return v
+
     @field_validator(
         "connector_id",
         "connector_secret",
@@ -142,6 +154,15 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_connector_fields(cls, v: str) -> str:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("connector_id", "tenant_id", "home_id")
+    @classmethod
+    def _validate_ids(cls, v: str) -> str:
+        if not v:
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9._:-]+", v):
+            raise ValueError("must contain only letters, numbers, dot, underscore, colon, or hyphen")
+        return v
 
     @field_validator("mode")
     @classmethod
@@ -169,6 +190,34 @@ class Settings(BaseSettings):
                 "this is dangerous outside development.",
                 stacklevel=2,
             )
+
+        if self.mode == "edge":
+            missing = [
+                field
+                for field in (
+                    "worker_base_url",
+                    "tunnel_base_url",
+                    "edge_shared_secret",
+                    "connector_id",
+                    "connector_secret",
+                    "tenant_id",
+                    "home_id",
+                )
+                if not getattr(self, field)
+            ]
+            if missing:
+                raise ValueError(
+                    f"mode=edge requires non-empty values for: {', '.join(missing)}"
+                )
+
+            if self.worker_base_url and self.tunnel_base_url:
+                worker_host = urlparse(self.worker_base_url).hostname
+                tunnel_host = urlparse(self.tunnel_base_url).hostname
+                if worker_host and tunnel_host and worker_host == tunnel_host:
+                    raise ValueError(
+                        "worker_base_url and tunnel_base_url must point to different hosts in edge mode"
+                    )
+
         return self
 
     # -- helpers -------------------------------------------------------------
@@ -219,6 +268,14 @@ class Settings(BaseSettings):
             "home_id": self.home_id,
             "alexa_source_queue_id": self.alexa_source_queue_id,
         }
+
+    @property
+    def connector_settings_redacted(self) -> dict[str, str]:
+        values = self.connector_settings.copy()
+        for key in ("connector_secret", "edge_shared_secret"):
+            if values.get(key):
+                values[key] = "****"
+        return values
 
     @property
     def public_configured(self) -> bool:

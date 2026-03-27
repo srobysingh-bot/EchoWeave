@@ -22,7 +22,7 @@ interface ConnectorResponseEnvelope {
   request_id: string;
   ok: boolean;
   payload?: unknown;
-  error?: string;
+  error?: string | { code?: string; message?: string; details?: Record<string, unknown> };
 }
 
 export class HomeSession {
@@ -64,7 +64,11 @@ export class HomeSession {
           if (parsed.ok) {
             pending.resolve(parsed.payload ?? {});
           } else {
-            pending.reject(new Error(parsed.error ?? "connector-command-failed"));
+            const errorText =
+              typeof parsed.error === "string"
+                ? parsed.error
+                : parsed.error?.message || parsed.error?.code || "connector-command-failed";
+            pending.reject(new Error(errorText));
           }
           return;
         }

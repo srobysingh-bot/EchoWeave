@@ -25,7 +25,7 @@ map:
 ports:
   "5000/tcp": 5000
 ports_description:
-  "5000/tcp": "EchoWeave admin UI and Alexa webhook"
+  "5000/tcp": "EchoWeave admin UI, local edge stream origin, and legacy Alexa webhook"
 
 options:
   mode: "legacy"

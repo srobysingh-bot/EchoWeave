@@ -1,6 +1,21 @@
 # EchoWeave Home Assistant Add-ons
 
-This repository is a Home Assistant add-on repository. It currently hosts the **EchoWeave** add-on backend, which serves as a specialized audio bridge connecting Amazon Alexa to Music Assistant.
+This repository hosts the EchoWeave Home Assistant add-on and edge control plane for Alexa to Music Assistant playback.
+
+## Production Target
+
+- Primary production ingress: services/edge-worker
+- Durable session coordinator: services/edge-worker/src/durable_objects/HomeSession.ts
+- Home Assistant local runtime: addons/echoweave
+- Prototype or dev-only legacy control plane: services/cloud-backend
+
+The add-on is now designed to run as a local connector and secure stream origin in edge mode, while public Alexa ingress is handled by the Worker.
+
+## Runtime Modes
+
+- legacy: Add-on hosts direct Alexa webhook and stream path for historical flow.
+- connector: Add-on uses legacy cloud-backend polling connector flow.
+- edge: Add-on opens outbound websocket to edge worker and serves signed local edge stream route. In this mode, add-on does not expose public Alexa webhook as primary architecture.
 
 ## How to Install
 
@@ -16,5 +31,22 @@ You can add this repository to your Home Assistant instance by following these s
 
 ## Important Notes & Constraints
 
-*   **Experimental Status:** EchoWeave is currently in an experimental add-on phase. This repository only provides the backend bridge service at this time.
-*   **Public HTTPS / SSL Required:** Alexa AudioPlayer skills **require** a valid, public HTTPS endpoint secured by a trusted SSL certificate. You *must* have a reverse proxy (like Nginx Proxy Manager or Cloudflare Tunnels) exposing the add-on's port to the public internet. Local IP addresses, unencrypted HTTP, and internal hostnames (like `.local`) will be rejected by Alexa and by EchoWeave's internal security validations.
+- Experimental status: Edge architecture is active but still under migration hardening.
+- Public HTTPS and SSL required for Alexa skill endpoint in production.
+- Worker Alexa signature verification is still partially implemented and tracked for completion.
+
+## Edge Mode Required Fields
+
+Configure these add-on options for edge mode:
+
+- mode = edge
+- worker_base_url
+- tunnel_base_url
+- edge_shared_secret
+- connector_id
+- connector_secret
+- tenant_id
+- home_id
+- alexa_source_queue_id
+- ma_base_url
+- ma_token

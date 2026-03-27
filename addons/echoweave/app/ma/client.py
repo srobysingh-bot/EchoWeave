@@ -202,6 +202,21 @@ class MusicAssistantClient:
         items = resp.json()
         return [MAQueueItem.model_validate(item) for item in items]
 
+    async def get_queue_item(self, queue_id: str, queue_item_id: str) -> Optional[MAQueueItem]:
+        """Return a specific queue item by id, or ``None`` if unavailable."""
+        try:
+            resp = await self._get(f"/api/player_queues/{queue_id}/items/{queue_item_id}")
+            data = resp.json()
+            if isinstance(data, dict):
+                return MAQueueItem.model_validate(data)
+        except MusicAssistantError:
+            logger.warning(
+                "Queue item lookup failed queue_id=%s queue_item_id=%s",
+                queue_id,
+                queue_item_id,
+            )
+        return None
+
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the currently-playing queue item, or ``None``."""
         resp = await self._get(f"/api/player_queues/{queue_id}")
@@ -243,6 +258,18 @@ class MusicAssistantClient:
             "next_item": data.get("next_item", {}),
         }
 
+    async def _select_queue_item(self, queue_id: str, *, prefer_current: bool) -> Optional[MAQueueItem]:
+        if prefer_current:
+            item = await self.get_current_queue_item(queue_id)
+            if item:
+                return item
+            return await self.get_next_queue_item(queue_id)
+
+        item = await self.get_next_queue_item(queue_id)
+        if item:
+            return item
+        return await self.get_current_queue_item(queue_id)
+
     def get_item_metadata(self, item: MAQueueItem | None) -> dict[str, Any]:
         if not item:
             return {}
@@ -266,6 +293,7 @@ class MusicAssistantClient:
             "queue_id": queue_id,
             "queue_item_id": queue_item_id,
             "source_url": source_url,
+            "origin_stream_path": f"/edge/stream/{queue_id}/{queue_item_id}",
             "content_type": "audio/mpeg",
         }
 
@@ -274,7 +302,7 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             return None
 
-        item = await self.get_current_queue_item(resolved_queue_id)
+        item = await self._select_queue_item(resolved_queue_id, prefer_current=True)
         if not item:
             return None
 
@@ -282,7 +310,7 @@ class MusicAssistantClient:
         metadata = self.get_item_metadata(item)
         return {
             **metadata,
-            "origin_stream_path": f"/edge/stream/{resolved_queue_id}/{item.queue_item_id}",
+            "origin_stream_path": stream_ctx["origin_stream_path"],
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 
@@ -291,7 +319,7 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             return None
 
-        item = await self.get_next_queue_item(resolved_queue_id)
+        item = await self._select_queue_item(resolved_queue_id, prefer_current=False)
         if not item:
             return None
 
@@ -299,7 +327,7 @@ class MusicAssistantClient:
         metadata = self.get_item_metadata(item)
         return {
             **metadata,
-            "origin_stream_path": f"/edge/stream/{resolved_queue_id}/{item.queue_item_id}",
+            "origin_stream_path": stream_ctx["origin_stream_path"],
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 
@@ -322,9 +350,22 @@ class MusicAssistantClient:
         # TODO: Confirm the exact MA API path for stream resolution once
         # integrated with a live MA instance.
         try:
-            resp = await self._get(f"/api/player_queues/{queue_id}/items/{item_id}")
-            data = resp.json()
-            return data.get("streamdetails", {}).get("url") or data.get("uri")
+            item = await self.get_queue_item(queue_id, item_id)
+            if item and item.streamdetails and item.streamdetails.url:
+                return item.streamdetails.url
+            if item and item.uri:
+                return item.uri
+
+            # Fallback: command-based stream resolution in newer MA builds.
+            result = await self._post_command(
+                "player_queues/get_stream_url",
+                queue_id=queue_id,
+                queue_item_id=item_id,
+            )
+            if isinstance(result, str) and result:
+                return result
+            if isinstance(result, dict):
+                return str(result.get("url") or "") or None
         except MusicAssistantError:
             logger.warning("Stream resolution failed for item %s in queue %s", item_id, queue_id)
             return None

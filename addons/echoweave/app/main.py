@@ -31,8 +31,6 @@ from app.web.routes_setup import router as setup_router
 from app.web.routes_logs import router as logs_router, install_log_buffer
 from app.web.routes_config import router as config_router
 from app.web.ingress import get_ingress_base_path
-from app.alexa.router import router as alexa_router
-from app.edge.stream_router import router as edge_stream_router
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +160,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from app.edge.command_dispatch import execute_edge_command
 
         async def _edge_command_handler(command_type: str, payload: dict) -> dict:
-            return await execute_edge_command(command_type, payload, ma_client)
+            return await execute_edge_command(
+                command_type,
+                payload,
+                ma_client,
+                default_queue_id=settings.alexa_source_queue_id,
+            )
 
         edge_client = EdgeConnectorWSClient(
             worker_base_url=settings.worker_base_url,
@@ -170,6 +173,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             connector_secret=settings.connector_secret,
             tenant_id=settings.tenant_id,
             home_id=settings.home_id,
+            source_queue_id=settings.alexa_source_queue_id,
             command_handler=_edge_command_handler,
         )
         registry.register("edge_connector_ws", edge_client)
@@ -180,6 +184,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "connector_secret": settings.connector_secret,
                 "tenant_id": settings.tenant_id,
                 "home_id": settings.home_id,
+                    "origin_base_url": settings.tunnel_base_url,
+                    "alexa_source_queue_id": settings.alexa_source_queue_id,
                 "capabilities": {
                     "commands": [
                         "prepare_play",
@@ -220,9 +226,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("Edge mode enabled but connector configuration is incomplete.")
 
     # Session store
-    from app.alexa.session_store import init_session_store
-    session_store = init_session_store(persistence=persistence)
-    registry.register("session_store", session_store)
+    if not settings.is_edge_mode:
+        from app.alexa.session_store import init_session_store
+
+        session_store = init_session_store(persistence=persistence)
+        registry.register("session_store", session_store)
 
     # Health service
     from app.diagnostics.health import HealthService
@@ -296,8 +304,13 @@ def create_app() -> FastAPI:
     _app.include_router(setup_router)
     _app.include_router(logs_router)
     _app.include_router(config_router)
-    _app.include_router(edge_stream_router)
-    if not startup_settings.is_edge_mode:
+    if startup_settings.is_edge_mode:
+        from app.edge.stream_router import router as edge_stream_router
+
+        _app.include_router(edge_stream_router)
+    else:
+        from app.alexa.router import router as alexa_router
+
         _app.include_router(alexa_router)
 
     # Static files
