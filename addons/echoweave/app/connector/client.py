@@ -27,6 +27,8 @@ class ConnectorRuntimeState:
 
 
 class ConnectorClient:
+    """Connector-side HTTP client for cloud registration and heartbeats."""
+
     def __init__(
         self,
         *,

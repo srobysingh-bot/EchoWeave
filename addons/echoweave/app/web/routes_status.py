@@ -86,12 +86,21 @@ async def status_page(request: Request) -> HTMLResponse:
     connector_client = registry.get_optional("connector_client")
     connector_heartbeat = registry.get_optional("connector_heartbeat")
     if connector_client:
-        connector_runtime = {
-            "registered": str(connector_client.state.registered).lower(),
-            "registration_message": connector_client.state.registration_message,
-            "last_heartbeat_status": connector_client.state.last_heartbeat_status,
-            "last_heartbeat_at": connector_client.state.last_heartbeat_at,
-        }
+        if hasattr(connector_client.state, "snapshot"):
+            state = connector_client.state.snapshot()
+            connector_runtime = {
+                "registered": str(state.get("registered", False)).lower(),
+                "registration_message": str(state.get("registration_message", "not-started")),
+                "last_heartbeat_status": str(state.get("last_heartbeat_status", "never")),
+                "last_heartbeat_at": str(state.get("last_heartbeat_at", "")),
+            }
+        else:
+            connector_runtime = {
+                "registered": str(connector_client.state.registered).lower(),
+                "registration_message": connector_client.state.registration_message,
+                "last_heartbeat_status": connector_client.state.last_heartbeat_status,
+                "last_heartbeat_at": connector_client.state.last_heartbeat_at,
+            }
     elif connector_heartbeat and hasattr(connector_heartbeat, "snapshot"):
         connector_runtime = connector_heartbeat.snapshot()
 

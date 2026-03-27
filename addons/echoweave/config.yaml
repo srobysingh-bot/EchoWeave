@@ -47,7 +47,7 @@ options:
   debug: false
   allow_insecure_local_test: false
 
-# Home Assistant add-on schema
+# Home Assistant add-on schema (legacy + connector modes)
 schema:
   mode: list(legacy|connector)?
   backend_url: url?

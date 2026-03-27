@@ -22,6 +22,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     """Build the backend API with health, Alexa, and connector routes."""
+    # Keep API surface explicit for Sprint 1 and easy to extend in later phases.
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,

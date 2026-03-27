@@ -79,6 +79,7 @@ async def setup_page(request: Request, persistence=Depends(get_persistence)) -> 
             "complete": complete,
             "total": total,
             "progress_pct": int(complete / total * 100) if total else 0,
+            "is_connector_mode": bool(getattr(settings, "is_connector_mode", False)),
             "settings": settings_dict,
         },
     )

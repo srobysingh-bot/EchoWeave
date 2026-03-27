@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     def _strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/") if v else v
 
+    @field_validator("connector_id", "connector_secret", "tenant_id", "home_id")
+    @classmethod
+    def _strip_connector_fields(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
     @field_validator("mode")
     @classmethod
     def _validate_mode(cls, v: str) -> str:
@@ -163,6 +168,16 @@ class Settings(BaseSettings):
             and self.tenant_id
             and self.home_id
         )
+
+    @property
+    def connector_settings(self) -> dict[str, str]:
+        return {
+            "backend_url": self.backend_url,
+            "connector_id": self.connector_id,
+            "connector_secret": self.connector_secret,
+            "tenant_id": self.tenant_id,
+            "home_id": self.home_id,
+        }
 
     @property
     def public_configured(self) -> bool:
