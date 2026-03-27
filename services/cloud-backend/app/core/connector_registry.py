@@ -41,5 +41,20 @@ class ConnectorRegistry:
     def get(self, connector_id: str) -> ConnectorRecord | None:
         return store.get_connector(connector_id)
 
+    def find_by_tenant_home(self, *, tenant_id: str, home_id: str) -> ConnectorRecord | None:
+        for record in store.connectors.values():
+            if record.tenant_id == tenant_id and record.home_id == home_id:
+                return record
+        return None
+
+    def find_default(self) -> ConnectorRecord | None:
+        if not store.connectors:
+            return None
+        records = sorted(store.connectors.values(), key=lambda item: item.last_seen, reverse=True)
+        for record in records:
+            if record.last_heartbeat_status == "online":
+                return record
+        return records[0]
+
 
 registry = ConnectorRegistry()
