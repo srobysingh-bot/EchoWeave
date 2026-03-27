@@ -130,6 +130,26 @@ async def test_public_health_check_uses_effective_runtime_public_url(monkeypatch
     monkeypatch.setattr("app.ma.client.MusicAssistantClient.ping", _always_true)
     monkeypatch.setattr("app.ma.client.MusicAssistantClient.validate_token", _always_true)
 
+    # Mock the stream URL check's HTTP client to avoid actual network calls
+    class _FakeResponse:
+        def __init__(self, status_code: int):
+            self.status_code = status_code
+
+    class _FakeHttpClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def head(self, _url: str):
+            return _FakeResponse(200)
+
+        async def get(self, _url: str):
+            return _FakeResponse(200)
+
+    monkeypatch.setattr("app.ma.health.httpx.AsyncClient", lambda timeout=10: _FakeHttpClient())
+
     with TestClient(app) as client:
         resp = client.get("/health")
 
