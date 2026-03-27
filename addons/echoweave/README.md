@@ -157,7 +157,7 @@ python -m pytest app/tests/ -v
 - **ASK Automation:** ASK CLI wrappers are stubbed. Full AWS credential management and ASK deployment automation is **Phase 2+**. 
 - **Manual Alexa Skill Setup Expected:** In Phase 1, users must manually:
   1. Create an Alexa skill in the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
-  2. Configure the skill's HTTPS endpoint to point to the public EchoWeave URL (e.g., `https://your-domain.com/alexa`).
+  2. In edge mode, configure the skill HTTPS endpoint to point to Worker `/v1/alexa` (e.g., `https://your-worker-domain/v1/alexa`).
   3. Enter the skill ID into EchoWeave's Setup form under **Manual Alexa Skill Setup (Phase 1)**.
 - Worker Alexa signature verification performs cert URL validation, cert fetch/parsing, SAN/time checks, request timestamp checks, and RSA-SHA1 verification against the exact request body.
 - **Session store is JSON-file-backed** (not a database) — suitable for single-device testing but not recommended for production multi-user deployments.
