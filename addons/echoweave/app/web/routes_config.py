@@ -40,6 +40,15 @@ async def config_page(request: Request) -> HTMLResponse:
         with_sources = config_svc.get_effective_with_sources()
     else:
         with_sources = {
+            "mode": {"value": settings_dict.get("mode", "legacy"), "source": "default"},
+            "backend_url": {"value": settings_dict.get("backend_url", ""), "source": "default"},
+            "worker_base_url": {"value": settings_dict.get("worker_base_url", ""), "source": "default"},
+            "tunnel_base_url": {"value": settings_dict.get("tunnel_base_url", ""), "source": "default"},
+            "connector_id": {"value": settings_dict.get("connector_id", ""), "source": "default"},
+            "connector_secret": {"value": settings_dict.get("connector_secret", ""), "source": "default"},
+            "tenant_id": {"value": settings_dict.get("tenant_id", ""), "source": "default"},
+            "home_id": {"value": settings_dict.get("home_id", ""), "source": "default"},
+            "alexa_source_queue_id": {"value": settings_dict.get("alexa_source_queue_id", ""), "source": "default"},
             "ma_base_url": {"value": settings_dict.get("ma_base_url", ""), "source": "default"},
             "ma_token": {"value": settings_dict.get("ma_token", ""), "source": "default"},
             "public_base_url": {"value": settings_dict.get("public_base_url", ""), "source": "default"},

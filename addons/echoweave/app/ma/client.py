@@ -220,6 +220,100 @@ class MusicAssistantClient:
             return MAQueueItem.model_validate(next_item)
         return None
 
+    async def _resolve_default_queue_id(self) -> str | None:
+        players = await self.get_players()
+        for player in players:
+            active_queue = player.get("active_queue") or player.get("active_source")
+            if active_queue:
+                return str(active_queue)
+        return None
+
+    async def get_queue_state(self, queue_id: str | None = None) -> dict[str, Any]:
+        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        if not resolved_queue_id:
+            raise MusicAssistantError("No active queue available.")
+
+        resp = await self._get(f"/api/player_queues/{resolved_queue_id}")
+        data = resp.json()
+        return {
+            "queue_id": resolved_queue_id,
+            "state": data.get("state", "unknown"),
+            "elapsed_time": data.get("elapsed_time", 0),
+            "current_item": data.get("current_item", {}),
+            "next_item": data.get("next_item", {}),
+        }
+
+    def get_item_metadata(self, item: MAQueueItem | None) -> dict[str, Any]:
+        if not item:
+            return {}
+        return {
+            "queue_id": item.queue_id,
+            "queue_item_id": item.queue_item_id,
+            "title": item.name,
+            "subtitle": item.artist or item.album,
+            "artist": item.artist,
+            "album": item.album,
+            "image_url": item.image_url,
+            "duration": item.duration,
+            "uri": item.uri,
+        }
+
+    async def build_stream_context(self, queue_id: str, queue_item_id: str) -> dict[str, Any]:
+        source_url = await self.get_stream_url(queue_id, queue_item_id)
+        if not source_url:
+            raise MusicAssistantError("No stream source resolved for queue item.")
+        return {
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "source_url": source_url,
+            "content_type": "audio/mpeg",
+        }
+
+    async def get_current_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
+        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        if not resolved_queue_id:
+            return None
+
+        item = await self.get_current_queue_item(resolved_queue_id)
+        if not item:
+            return None
+
+        stream_ctx = await self.build_stream_context(resolved_queue_id, item.queue_item_id)
+        metadata = self.get_item_metadata(item)
+        return {
+            **metadata,
+            "origin_stream_path": f"/edge/stream/{resolved_queue_id}/{item.queue_item_id}",
+            "content_type": stream_ctx.get("content_type", "audio/mpeg"),
+        }
+
+    async def get_next_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
+        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        if not resolved_queue_id:
+            return None
+
+        item = await self.get_next_queue_item(resolved_queue_id)
+        if not item:
+            return None
+
+        stream_ctx = await self.build_stream_context(resolved_queue_id, item.queue_item_id)
+        metadata = self.get_item_metadata(item)
+        return {
+            **metadata,
+            "origin_stream_path": f"/edge/stream/{resolved_queue_id}/{item.queue_item_id}",
+            "content_type": stream_ctx.get("content_type", "audio/mpeg"),
+        }
+
+    async def resolve_play_request(self, queue_id: str | None = None) -> dict[str, Any]:
+        playable = await self.get_current_playable_item(queue_id)
+        if playable:
+            return playable
+
+        playable = await self.get_next_playable_item(queue_id)
+        if playable:
+            return playable
+
+        raise MusicAssistantError("No playable queue item available.")
+
     async def get_stream_url(self, queue_id: str, item_id: str) -> str | None:
         """Resolve a playable stream URL from MA for the given queue item.
 

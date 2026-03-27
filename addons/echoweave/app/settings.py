@@ -27,10 +27,14 @@ from app.core.constants import (
 TRACKED_CONFIG_FIELDS: tuple[str, ...] = (
     "mode",
     "backend_url",
+    "worker_base_url",
+    "tunnel_base_url",
+    "edge_shared_secret",
     "connector_id",
     "connector_secret",
     "tenant_id",
     "home_id",
+    "alexa_source_queue_id",
     "ma_base_url",
     "ma_token",
     "public_base_url",
@@ -71,10 +75,14 @@ class Settings(BaseSettings):
 
     # -- Connector mode ------------------------------------------------------
     backend_url: str = ""
+    worker_base_url: str = ""
+    tunnel_base_url: str = ""
+    edge_shared_secret: str = ""
     connector_id: str = ""
     connector_secret: str = ""
     tenant_id: str = ""
     home_id: str = ""
+    alexa_source_queue_id: str = ""
 
     # -- Music Assistant -----------------------------------------------------
     ma_base_url: str = ""
@@ -111,12 +119,26 @@ class Settings(BaseSettings):
 
     # -- validators ----------------------------------------------------------
 
-    @field_validator("backend_url", "ma_base_url", "public_base_url", "stream_base_url")
+    @field_validator(
+        "backend_url",
+        "worker_base_url",
+        "tunnel_base_url",
+        "ma_base_url",
+        "public_base_url",
+        "stream_base_url",
+    )
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/") if v else v
 
-    @field_validator("connector_id", "connector_secret", "tenant_id", "home_id")
+    @field_validator(
+        "connector_id",
+        "connector_secret",
+        "tenant_id",
+        "home_id",
+        "edge_shared_secret",
+        "alexa_source_queue_id",
+    )
     @classmethod
     def _strip_connector_fields(cls, v: str) -> str:
         return v.strip() if isinstance(v, str) else v
@@ -125,8 +147,8 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_mode(cls, v: str) -> str:
         mode = (v or "legacy").strip().lower()
-        if mode not in {"legacy", "connector"}:
-            raise ValueError("mode must be one of ['legacy', 'connector']")
+        if mode not in {"legacy", "connector", "edge"}:
+            raise ValueError("mode must be one of ['legacy', 'connector', 'edge']")
         return mode
 
     @field_validator("log_level")
@@ -156,11 +178,26 @@ class Settings(BaseSettings):
         return self.mode == "connector"
 
     @property
+    def is_edge_mode(self) -> bool:
+        return self.mode == "edge"
+
+    @property
     def ma_configured(self) -> bool:
         return bool(self.ma_base_url and self.ma_token)
 
     @property
     def connector_configured(self) -> bool:
+        if self.is_edge_mode:
+            return bool(
+                self.worker_base_url
+                and self.tunnel_base_url
+                and self.edge_shared_secret
+                and self.connector_id
+                and self.connector_secret
+                and self.tenant_id
+                and self.home_id
+            )
+
         return bool(
             self.backend_url
             and self.connector_id
@@ -173,10 +210,14 @@ class Settings(BaseSettings):
     def connector_settings(self) -> dict[str, str]:
         return {
             "backend_url": self.backend_url,
+            "worker_base_url": self.worker_base_url,
+            "tunnel_base_url": self.tunnel_base_url,
+            "edge_shared_secret": self.edge_shared_secret,
             "connector_id": self.connector_id,
             "connector_secret": self.connector_secret,
             "tenant_id": self.tenant_id,
             "home_id": self.home_id,
+            "alexa_source_queue_id": self.alexa_source_queue_id,
         }
 
     @property

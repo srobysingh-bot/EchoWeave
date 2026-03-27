@@ -30,10 +30,14 @@ ports_description:
 options:
   mode: "legacy"
   backend_url: ""
+  worker_base_url: ""
+  tunnel_base_url: ""
+  edge_shared_secret: ""
   connector_id: ""
   connector_secret: ""
   tenant_id: ""
   home_id: ""
+  alexa_source_queue_id: ""
   ma_base_url: ""
   ma_token: ""
   public_base_url: ""
@@ -47,12 +51,16 @@ options:
   allow_insecure_local_test: false
 
 schema:
-  mode: list(legacy|connector)?
+  mode: list(legacy|connector|edge)?
   backend_url: url?
+  worker_base_url: url?
+  tunnel_base_url: url?
+  edge_shared_secret: password?
   connector_id: str?
   connector_secret: password?
   tenant_id: str?
   home_id: str?
+  alexa_source_queue_id: str?
   ma_base_url: url?
   ma_token: password?
   public_base_url: url?

@@ -28,6 +28,46 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
     """Build the setup checklist with mode-aware completion status."""
     has_ma = settings.ma_configured
 
+    if getattr(settings, "is_edge_mode", False):
+        return [
+            {
+                "step": 1,
+                "label": "Worker URL Configured",
+                "done": bool(settings.worker_base_url),
+                "detail": "Set worker_base_url",
+            },
+            {
+                "step": 2,
+                "label": "Tunnel Origin URL",
+                "done": bool(settings.tunnel_base_url),
+                "detail": "Set tunnel_base_url",
+            },
+            {
+                "step": 3,
+                "label": "Connector Identity",
+                "done": bool(settings.connector_id and settings.connector_secret),
+                "detail": "Set connector ID and secret",
+            },
+            {
+                "step": 4,
+                "label": "Tenant/Home Mapping",
+                "done": bool(settings.tenant_id and settings.home_id),
+                "detail": "Set tenant_id and home_id",
+            },
+            {
+                "step": 5,
+                "label": "Worker Stream Shared Secret",
+                "done": bool(settings.edge_shared_secret),
+                "detail": "Set edge_shared_secret",
+            },
+            {
+                "step": 6,
+                "label": "Music Assistant Reachable",
+                "done": has_ma,
+                "detail": "Configure MA URL and token",
+            },
+        ]
+
     if getattr(settings, "is_connector_mode", False):
         return [
             {

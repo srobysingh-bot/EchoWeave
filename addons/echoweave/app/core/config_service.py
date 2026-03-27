@@ -133,10 +133,14 @@ class ConfigService:
         return PersistedConfig(
             mode=getattr(self._settings, "mode", "legacy") or "legacy",
             backend_url=getattr(self._settings, "backend_url", "") or "",
+            worker_base_url=getattr(self._settings, "worker_base_url", "") or "",
+            tunnel_base_url=getattr(self._settings, "tunnel_base_url", "") or "",
+            edge_shared_secret=getattr(self._settings, "edge_shared_secret", "") or "",
             connector_id=getattr(self._settings, "connector_id", "") or "",
             connector_secret=getattr(self._settings, "connector_secret", "") or "",
             tenant_id=getattr(self._settings, "tenant_id", "") or "",
             home_id=getattr(self._settings, "home_id", "") or "",
+            alexa_source_queue_id=getattr(self._settings, "alexa_source_queue_id", "") or "",
             ma_base_url=getattr(self._settings, "ma_base_url", "") or "",
             ma_token=getattr(self._settings, "ma_token", "") or "",
             public_base_url=getattr(self._settings, "public_base_url", "") or "",
@@ -181,6 +185,16 @@ class ConfigService:
             self._field_sources.get("backend_url", "default"),
         )
         logger.info(
+            "Effective runtime config: worker_base_url=%s source=%s",
+            self._normalise_url_for_log(getattr(self._settings, "worker_base_url", "") or ""),
+            self._field_sources.get("worker_base_url", "default"),
+        )
+        logger.info(
+            "Effective runtime config: tunnel_base_url=%s source=%s",
+            self._normalise_url_for_log(getattr(self._settings, "tunnel_base_url", "") or ""),
+            self._field_sources.get("tunnel_base_url", "default"),
+        )
+        logger.info(
             "Effective runtime config: ma_base_url=%s source=%s",
             self._normalise_url_for_log(getattr(self._settings, "ma_base_url", "") or ""),
             self._field_sources.get("ma_base_url", "default"),
@@ -218,10 +232,14 @@ class ConfigService:
             if key in {
                 "mode",
                 "backend_url",
+                "worker_base_url",
+                "tunnel_base_url",
+                "edge_shared_secret",
                 "connector_id",
                 "connector_secret",
                 "tenant_id",
                 "home_id",
+                "alexa_source_queue_id",
                 "ma_base_url",
                 "ma_token",
                 "public_base_url",

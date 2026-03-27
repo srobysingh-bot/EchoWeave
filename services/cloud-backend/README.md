@@ -1,5 +1,9 @@
 # EchoWeave Cloud Backend
 
+> Deprecated as production ingress. Production public ingress now lives in `services/edge-worker`.
+
+This service is retained only for local prototype/dev compatibility while edge migration completes.
+
 Cloud control plane for connector registration, Alexa ingress, and connector command dispatch.
 
 ## Current routes

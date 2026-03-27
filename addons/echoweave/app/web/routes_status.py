@@ -27,8 +27,11 @@ async def status_page(request: Request) -> HTMLResponse:
     health_svc = get_health_service()
     config_svc = registry.get_optional("config_service")
     connector_mode = False
+    edge_mode = False
     if config_svc and getattr(config_svc.settings, "is_connector_mode", False):
         connector_mode = True
+    if config_svc and getattr(config_svc.settings, "is_edge_mode", False):
+        edge_mode = True
 
     items: list[dict[str, Any]] = [
         {"label": "Add-on Service", "status": "ok", "detail": f"v{APP_VERSION} running"}
@@ -46,7 +49,7 @@ async def status_page(request: Request) -> HTMLResponse:
         }
         legacy_only_keys = {"stream_url_valid", "public_url_reachable"}
         for c in result.checks:
-            if connector_mode and c.key in legacy_only_keys:
+            if (connector_mode or edge_mode) and c.key in legacy_only_keys:
                 continue
             items.append({
                 "label": key_map.get(c.key, c.key),
@@ -59,9 +62,12 @@ async def status_page(request: Request) -> HTMLResponse:
     diagnostics = {
         "mode": {"value": "legacy", "source": "default"},
         "backend_url": {"value": "", "source": "default"},
+        "worker_base_url": {"value": "", "source": "default"},
+        "tunnel_base_url": {"value": "", "source": "default"},
         "connector_id": {"value": "", "source": "default"},
         "tenant_id": {"value": "", "source": "default"},
         "home_id": {"value": "", "source": "default"},
+        "alexa_source_queue_id": {"value": "", "source": "default"},
         "public_base_url": {"value": "", "source": "default"},
         "stream_base_url": {"value": "", "source": "default"},
         "public_probe_path": {"value": "/healthz", "source": "runtime"},
@@ -77,14 +83,18 @@ async def status_page(request: Request) -> HTMLResponse:
         with_sources = config_svc.get_effective_with_sources()
         diagnostics["mode"] = with_sources.get("mode", diagnostics["mode"])
         diagnostics["backend_url"] = with_sources.get("backend_url", diagnostics["backend_url"])
+        diagnostics["worker_base_url"] = with_sources.get("worker_base_url", diagnostics["worker_base_url"])
+        diagnostics["tunnel_base_url"] = with_sources.get("tunnel_base_url", diagnostics["tunnel_base_url"])
         diagnostics["connector_id"] = with_sources.get("connector_id", diagnostics["connector_id"])
         diagnostics["tenant_id"] = with_sources.get("tenant_id", diagnostics["tenant_id"])
         diagnostics["home_id"] = with_sources.get("home_id", diagnostics["home_id"])
+        diagnostics["alexa_source_queue_id"] = with_sources.get("alexa_source_queue_id", diagnostics["alexa_source_queue_id"])
         diagnostics["public_base_url"] = with_sources.get("public_base_url", diagnostics["public_base_url"])
         diagnostics["stream_base_url"] = with_sources.get("stream_base_url", diagnostics["stream_base_url"])
 
     connector_client = registry.get_optional("connector_client")
     connector_heartbeat = registry.get_optional("connector_heartbeat")
+    edge_connector = registry.get_optional("edge_connector_ws")
     if connector_client:
         if hasattr(connector_client.state, "snapshot"):
             state = connector_client.state.snapshot()
@@ -103,6 +113,14 @@ async def status_page(request: Request) -> HTMLResponse:
             }
     elif connector_heartbeat and hasattr(connector_heartbeat, "snapshot"):
         connector_runtime = connector_heartbeat.snapshot()
+
+    if edge_mode and edge_connector:
+        connector_runtime = {
+            "registered": "true",
+            "registration_message": "edge-ws-managed",
+            "last_heartbeat_status": "connected" if getattr(edge_connector, "is_connected", False) else "disconnected",
+            "last_heartbeat_at": "",
+        }
 
     items.append({
         "label": "Connector Registration",

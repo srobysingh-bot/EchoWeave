@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +32,7 @@ from app.web.routes_logs import router as logs_router, install_log_buffer
 from app.web.routes_config import router as config_router
 from app.web.ingress import get_ingress_base_path
 from app.alexa.router import router as alexa_router
+from app.edge.stream_router import router as edge_stream_router
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,68 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             connector_client.state.registration_message = "connector-config-missing"
             logger.warning("Connector mode enabled but connector configuration is incomplete.")
 
+    if settings.is_edge_mode:
+        from app.edge.client_ws import EdgeConnectorWSClient
+        from app.edge.command_dispatch import execute_edge_command
+
+        async def _edge_command_handler(command_type: str, payload: dict) -> dict:
+            return await execute_edge_command(command_type, payload, ma_client)
+
+        edge_client = EdgeConnectorWSClient(
+            worker_base_url=settings.worker_base_url,
+            connector_id=settings.connector_id,
+            connector_secret=settings.connector_secret,
+            tenant_id=settings.tenant_id,
+            home_id=settings.home_id,
+            command_handler=_edge_command_handler,
+        )
+        registry.register("edge_connector_ws", edge_client)
+
+        if settings.connector_configured:
+            register_payload = {
+                "connector_id": settings.connector_id,
+                "connector_secret": settings.connector_secret,
+                "tenant_id": settings.tenant_id,
+                "home_id": settings.home_id,
+                "capabilities": {
+                    "commands": [
+                        "prepare_play",
+                        "get_current_item",
+                        "get_next_item",
+                        "get_state",
+                        "pause",
+                        "resume",
+                        "stop",
+                        "next",
+                        "previous",
+                    ],
+                    "stream_route": "/edge/stream/{queue_id}/{queue_item_id}",
+                },
+            }
+            register_headers = {"content-type": "application/json"}
+            bootstrap_secret = os.getenv("ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET", "")
+            if bootstrap_secret:
+                register_headers["x-connector-bootstrap-secret"] = bootstrap_secret
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(
+                        f"{settings.worker_base_url}/v1/connectors/register",
+                        json=register_payload,
+                        headers=register_headers,
+                    )
+                if resp.status_code != 200:
+                    logger.warning(
+                        "Edge connector registration failed: status=%s body=%s",
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception:
+                logger.exception("Edge connector registration request failed.")
+
+            await edge_client.start()
+        else:
+            logger.warning("Edge mode enabled but connector configuration is incomplete.")
+
     # Session store
     from app.alexa.session_store import init_session_store
     session_store = init_session_store(persistence=persistence)
@@ -174,7 +238,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             return await checker.run_all(
                 settings.stream_base_url,
                 settings.allow_insecure_local_test,
-                include_stream_check=not settings.is_connector_mode,
+                include_stream_check=not settings.is_connector_mode and not settings.is_edge_mode,
             )
         return [{"key": "ma_reachable", "status": "fail", "message": "MA client not registered."}]
 
@@ -189,7 +253,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         return await check_skill_exists(persistence)
 
     health_svc.register_check(ma_checks)
-    if not settings.is_connector_mode:
+    if not settings.is_connector_mode and not settings.is_edge_mode:
         health_svc.register_check(public_check)
         health_svc.register_check(ask_check)
         health_svc.register_check(skill_check)
@@ -211,6 +275,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
+    startup_settings = load_settings()
+
     _app = FastAPI(
         title=APP_NAME,
         description=APP_DESCRIPTION,
@@ -230,7 +296,9 @@ def create_app() -> FastAPI:
     _app.include_router(setup_router)
     _app.include_router(logs_router)
     _app.include_router(config_router)
-    _app.include_router(alexa_router)
+    _app.include_router(edge_stream_router)
+    if not startup_settings.is_edge_mode:
+        _app.include_router(alexa_router)
 
     # Static files
     _app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -265,7 +333,7 @@ def create_app() -> FastAPI:
     class AdminAuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             # Exempt paths
-            if request.url.path.startswith(("/alexa", "/health", "/static", "/debug")) or \
+            if request.url.path.startswith(("/alexa", "/edge", "/health", "/static", "/debug")) or \
                "/debug/" in request.url.path:
                 return await call_next(request)
 

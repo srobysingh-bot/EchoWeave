@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "echoweave-edge-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-27",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "HOME_SESSION",
+        "class_name": "HomeSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "HomeSession"
+      ]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "ECHOWEAVE_DB",
+      "database_name": "echoweave-db",
+      "database_id": "TODO_REPLACE_DATABASE_ID"
+    }
+  ],
+  "vars": {
+    "ALEXA_SIGNATURE_ENFORCE": "true",
+    "STREAM_TOKEN_TTL_SECONDS": "300"
+  }
+}
