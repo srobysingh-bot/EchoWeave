@@ -26,6 +26,9 @@ async def status_page(request: Request) -> HTMLResponse:
 
     health_svc = get_health_service()
     config_svc = registry.get_optional("config_service")
+    connector_mode = False
+    if config_svc and getattr(config_svc.settings, "is_connector_mode", False):
+        connector_mode = True
 
     items: list[dict[str, Any]] = [
         {"label": "Add-on Service", "status": "ok", "detail": f"v{APP_VERSION} running"}
@@ -41,7 +44,10 @@ async def status_page(request: Request) -> HTMLResponse:
             "ask_configured": "ASK Credentials",
             "skill_exists": "Alexa Skill",
         }
+        legacy_only_keys = {"stream_url_valid", "public_url_reachable"}
         for c in result.checks:
+            if connector_mode and c.key in legacy_only_keys:
+                continue
             items.append({
                 "label": key_map.get(c.key, c.key),
                 "status": c.status,

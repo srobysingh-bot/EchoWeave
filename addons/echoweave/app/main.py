@@ -165,7 +165,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             checker = MAHealthChecker(client)
             return await checker.run_all(
                 settings.stream_base_url,
-                settings.allow_insecure_local_test
+                settings.allow_insecure_local_test,
+                include_stream_check=not settings.is_connector_mode,
             )
         return [{"key": "ma_reachable", "status": "fail", "message": "MA client not registered."}]
 

@@ -112,3 +112,60 @@ def test_status_page_shows_connector_runtime(monkeypatch: pytest.MonkeyPatch, tm
     assert "connector_registered" in body
     assert "Connector Registration" in body
     assert "Connector Heartbeat" in body
+
+
+def test_status_page_hides_legacy_endpoint_cards_in_connector_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    cfg = PersistedConfig(
+        mode="connector",
+        backend_url="https://cloud.example.com",
+        connector_id="connector-01",
+        connector_secret="secret",
+        tenant_id="tenant-01",
+        home_id="home-01",
+        ma_base_url="http://ma.local:8095",
+        ma_token="token",
+        public_base_url="https://placeholder.invalid",
+        stream_base_url="https://placeholder.invalid",
+    )
+    (tmp_path / "config.json").write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    monkeypatch.setenv("ECHOWEAVE_DATA_DIR", str(tmp_path))
+
+    with TestClient(app) as client:
+        resp = client.get("/status")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Stream Endpoint" not in body
+    assert "Public Endpoint" not in body
+
+
+def test_health_skips_legacy_endpoint_checks_in_connector_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    cfg = PersistedConfig(
+        mode="connector",
+        backend_url="https://cloud.example.com",
+        connector_id="connector-01",
+        connector_secret="secret",
+        tenant_id="tenant-01",
+        home_id="home-01",
+        ma_base_url="http://ma.local:8095",
+        ma_token="token",
+        public_base_url="https://placeholder.invalid",
+        stream_base_url="https://placeholder.invalid",
+    )
+    (tmp_path / "config.json").write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    monkeypatch.setenv("ECHOWEAVE_DATA_DIR", str(tmp_path))
+
+    with TestClient(app) as client:
+        resp = client.get("/health")
+
+    assert resp.status_code in (200, 503)
+    data = resp.json()
+    keys = [c["key"] for c in data["checks"]]
+    assert "stream_url_valid" not in keys
+    assert "public_url_reachable" not in keys

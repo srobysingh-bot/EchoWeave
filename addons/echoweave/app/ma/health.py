@@ -99,11 +99,14 @@ class MAHealthChecker:
                 "message": f"Stream URL unreachable: {exc}",
             }
 
-    async def run_all(self, stream_base_url: str = "", allow_insecure: bool = False) -> list[dict[str, Any]]:
+    async def run_all(
+        self,
+        stream_base_url: str = "",
+        allow_insecure: bool = False,
+        include_stream_check: bool = True,
+    ) -> list[dict[str, Any]]:
         """Run all MA-related health checks and return results."""
-        results = [
-            await self.check_reachable(),
-            await self.check_auth(),
-            await self.check_stream_url(stream_base_url, allow_insecure),
-        ]
+        results = [await self.check_reachable(), await self.check_auth()]
+        if include_stream_check:
+            results.append(await self.check_stream_url(stream_base_url, allow_insecure))
         return results
