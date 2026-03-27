@@ -108,3 +108,49 @@ class ConnectorClient:
             self.state.last_heartbeat_at = datetime.utcnow().isoformat() + "Z"
             logger.exception("Connector heartbeat error")
             return False
+
+    async def poll_next_command(self) -> dict[str, Any] | None:
+        url = f"{self.backend_url}/v1/connectors/{self.connector_id}/commands/next"
+        payload = {"connector_secret": self.connector_secret}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json=payload)
+            if resp.status_code == 401:
+                logger.warning("Connector command poll unauthorized: connector_id=%s", self.connector_id)
+                return None
+            if resp.status_code != 200:
+                logger.warning("Connector command poll failed: status=%s body=%s", resp.status_code, resp.text)
+                return None
+            data = resp.json()
+            if not data:
+                return None
+            return data
+        except Exception:
+            logger.exception("Connector command poll error")
+            return None
+
+    async def ack_command(
+        self,
+        *,
+        command_id: str,
+        success: bool,
+        message: str,
+        result: dict[str, Any] | None = None,
+    ) -> bool:
+        url = f"{self.backend_url}/v1/connectors/{self.connector_id}/commands/{command_id}/ack"
+        payload = {
+            "connector_secret": self.connector_secret,
+            "success": success,
+            "message": message,
+            "result": result or {},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                logger.warning("Connector command ack failed: command_id=%s status=%s body=%s", command_id, resp.status_code, resp.text)
+                return False
+            return True
+        except Exception:
+            logger.exception("Connector command ack error: command_id=%s", command_id)
+            return False

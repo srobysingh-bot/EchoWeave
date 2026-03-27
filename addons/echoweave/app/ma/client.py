@@ -234,3 +234,41 @@ class MusicAssistantClient:
         except MusicAssistantError:
             logger.warning("Stream resolution failed for item %s in queue %s", item_id, queue_id)
             return None
+
+    async def execute_play_command(self, queue_id: str | None = None) -> tuple[bool, str]:
+        """Attempt to start/resume playback through MA command API.
+
+        Returns ``(success, message)`` for connector acknowledgment.
+        """
+        try:
+            target_queue_id = queue_id
+            players = await self.get_players()
+
+            if not target_queue_id:
+                for player in players:
+                    active_queue = player.get("active_queue") or player.get("active_source")
+                    if active_queue:
+                        target_queue_id = str(active_queue)
+                        break
+
+            if target_queue_id:
+                await self._post_command("player_queues/play", queue_id=target_queue_id)
+                return True, f"play-started queue_id={target_queue_id}"
+
+            for player in players:
+                player_id = player.get("player_id")
+                if not player_id:
+                    continue
+                try:
+                    await self._post_command("players/cmd/play", player_id=player_id)
+                    return True, f"play-started player_id={player_id}"
+                except MusicAssistantError:
+                    continue
+
+            return False, "no-player-or-queue"
+        except MusicAssistantAuthError:
+            return False, "ma-auth-failed"
+        except MusicAssistantUnreachableError:
+            return False, "ma-unreachable"
+        except MusicAssistantError as exc:
+            return False, f"ma-error:{exc}"

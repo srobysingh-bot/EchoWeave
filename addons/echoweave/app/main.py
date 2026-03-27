@@ -119,6 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Connector mode startup (register + heartbeat)
     if settings.is_connector_mode:
         from app.connector.client import ConnectorClient
+        from app.connector.command_dispatch import execute_connector_command
         from app.connector.heartbeat import HeartbeatRunner
         from app.connector.registration import register_connector
 
@@ -131,7 +132,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         registry.register("connector_client", connector_client)
 
-        heartbeat_runner = HeartbeatRunner(connector_client, interval_seconds=30)
+        async def _command_handler(command: dict) -> tuple[bool, str, dict]:
+            return await execute_connector_command(command, ma_client)
+
+        heartbeat_runner = HeartbeatRunner(
+            connector_client,
+            interval_seconds=30,
+            command_handler=_command_handler,
+        )
         registry.register("connector_heartbeat", heartbeat_runner)
 
         ma_reachable = False

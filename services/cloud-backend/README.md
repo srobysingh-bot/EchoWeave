@@ -1,11 +1,27 @@
-# EchoWeave Cloud Backend (Sprint 1)
+# EchoWeave Cloud Backend
 
-This service provides the first cloud baseline for EchoWeave:
+Cloud control plane for connector registration, Alexa ingress, and connector command dispatch.
+
+## Current routes
 
 - `GET /health`
-- `POST /v1/alexa` (LaunchRequest only)
+- `POST /v1/alexa`
 - `POST /v1/connectors/register`
 - `POST /v1/connectors/{connector_id}/heartbeat`
+- `POST /v1/connectors/{connector_id}/commands/next`
+- `POST /v1/connectors/{connector_id}/commands/{command_id}/ack`
+
+## What is real vs stubbed
+
+- Real:
+	- connector registration and heartbeat lifecycle
+	- PlayIntent command creation (`command_id`) and queueing for connector polling
+	- connector ack-driven Alexa response for PlayIntent
+	- structured dispatch logs including command_id, payload summary, ack result, and failure reason
+- Stubbed/minimal:
+	- only basic command type `play` is supported today
+	- LaunchRequest does not send a connector command; it returns connector-aware welcome speech
+	- no persistent database yet (in-memory store only)
 
 ## Run locally
 
@@ -37,12 +53,13 @@ uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
 
 ```bash
 curl -i https://YOUR_BACKEND_HOST/health
-curl -i https://YOUR_BACKEND_HOST/v1/alexa
+curl -i -X POST https://YOUR_BACKEND_HOST/v1/alexa -H "content-type: application/json" -d '{"version":"1.0","request":{"type":"LaunchRequest"},"session":{"new":true}}'
 ```
 
-4. Configure endpoints:
+4. Configure endpoint wiring:
 	- EchoWeave add-on `backend_url`: `https://YOUR_BACKEND_HOST`
 	- Alexa skill endpoint: `https://YOUR_BACKEND_HOST/v1/alexa`
+	- Connector mode must be enabled in add-on config.
 
 ## Alexa routing logs
 
@@ -53,6 +70,10 @@ curl -i https://YOUR_BACKEND_HOST/v1/alexa
 - tenant/home resolution
 - connector lookup result
 - connector dispatch attempt
+- command_id
+- connector command payload summary
+- connector ack result
+- failure reason when dispatch fails
 - connector dispatch result
 - final Alexa response payload
 - exceptions with stack trace

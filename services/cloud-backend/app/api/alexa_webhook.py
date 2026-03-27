@@ -45,6 +45,15 @@ def _speech_response(text: str, should_end_session: bool = False) -> dict[str, A
     }
 
 
+def _command_payload_summary(command_payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": command_payload.get("action", ""),
+        "request_type": command_payload.get("request_type", ""),
+        "intent_name": command_payload.get("intent_name", ""),
+        "session_id": command_payload.get("session_id", ""),
+    }
+
+
 def _extract_request_info(body: dict[str, Any]) -> dict[str, str]:
     request = body.get("request", {})
     session = body.get("session", {})
@@ -87,26 +96,94 @@ def _resolve_tenant_home(body: dict[str, Any]) -> tuple[str, str, str]:
     return "", "", "unresolved"
 
 
-def _dispatch_to_connector(*, request_type: str, intent_name: str, connector_id: str) -> dict[str, Any]:
+async def _dispatch_to_connector(
+    *,
+    request_type: str,
+    intent_name: str,
+    connector_id: str,
+    tenant_id: str,
+    home_id: str,
+    request_id: str,
+    session_id: str,
+    user_id: str,
+) -> dict[str, Any]:
     if request_type == "LaunchRequest":
         return {
             "success": True,
             "connector_id": connector_id,
-            "alexa_response": _LAUNCH_RESPONSE,
-            "dispatch_note": "launch-routed",
+            "command_id": "",
+            "command_payload_summary": {},
+            "ack_result": {"acknowledged": True, "message": "launch-no-command"},
+            "alexa_response": _speech_response(
+                "Welcome to EchoWeave. Your connector is online.",
+                should_end_session=False,
+            ),
+            "dispatch_note": "launch-routed-real",
         }
 
     if request_type == "IntentRequest" and (intent_name == "PlayIntent" or "Play" in intent_name):
+        command_payload = {
+            "action": "play",
+            "request_type": request_type,
+            "intent_name": intent_name,
+            "request_id": request_id,
+            "session_id": session_id,
+            "user_id": user_id,
+        }
+        command = registry.enqueue_command(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+            home_id=home_id,
+            command_type="play",
+            payload=command_payload,
+        )
+        ack = await registry.wait_for_ack(command.command_id, timeout_seconds=6.0)
+
+        if ack and ack.status == "acked":
+            return {
+                "success": True,
+                "connector_id": connector_id,
+                "command_id": command.command_id,
+                "command_payload_summary": _command_payload_summary(command_payload),
+                "ack_result": {
+                    "acknowledged": True,
+                    "status": ack.status,
+                    "message": ack.ack_message,
+                },
+                "alexa_response": _speech_response("Playing now from Music Assistant."),
+                "dispatch_note": "play-routed-acked",
+            }
+
+        failure_reason = "ack-timeout"
+        if ack is not None:
+            failure_reason = ack.ack_message or ack.status
         return {
-            "success": True,
+            "success": False,
             "connector_id": connector_id,
-            "alexa_response": _speech_response("Playing now from Music Assistant."),
-            "dispatch_note": "play-routed",
+            "command_id": command.command_id,
+            "command_payload_summary": _command_payload_summary(command_payload),
+            "ack_result": {
+                "acknowledged": False,
+                "status": ack.status if ack else "timeout",
+                "message": failure_reason,
+            },
+            "alexa_response": _speech_response(
+                "I could not start playback right now. Please try again.",
+                should_end_session=True,
+            ),
+            "dispatch_note": "play-dispatch-failed",
         }
 
     return {
         "success": False,
         "connector_id": connector_id,
+        "command_id": "",
+        "command_payload_summary": {},
+        "ack_result": {
+            "acknowledged": False,
+            "status": "unsupported",
+            "message": "unsupported-request",
+        },
         "alexa_response": _speech_response("Sorry, that request is not supported yet.", should_end_session=True),
         "dispatch_note": "unsupported-request",
     }
@@ -161,16 +238,25 @@ async def alexa_webhook(body: dict) -> JSONResponse:
             info["intent_name"],
         )
 
-        dispatch = _dispatch_to_connector(
+        dispatch = await _dispatch_to_connector(
             request_type=info["request_type"],
             intent_name=info["intent_name"],
             connector_id=connector.connector_id,
+            tenant_id=tenant_id,
+            home_id=home_id,
+            request_id=info["request_id"],
+            session_id=info["session_id"],
+            user_id=info["user_id"],
         )
         logger.info(
-            "connector_dispatch_result connector_id=%s success=%s note=%s",
+            "connector_dispatch_result connector_id=%s success=%s note=%s command_id=%s command_payload=%s connector_ack=%s failure_reason=%s",
             dispatch["connector_id"],
             dispatch["success"],
             dispatch["dispatch_note"],
+            dispatch.get("command_id", ""),
+            dispatch.get("command_payload_summary", {}),
+            dispatch.get("ack_result", {}),
+            dispatch.get("ack_result", {}).get("message", ""),
         )
         logger.info("alexa_response payload=%s", dispatch["alexa_response"])
         return JSONResponse(content=dispatch["alexa_response"])
