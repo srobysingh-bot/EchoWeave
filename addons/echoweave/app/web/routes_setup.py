@@ -25,26 +25,29 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
-    """Build the setup checklist with real completion status."""
+    """Build the setup checklist with mode-aware completion status."""
     has_ma = settings.ma_configured
+
+    if getattr(settings, "is_connector_mode", False):
+        return [
+            {"step": 1, "label": "Connector Backend URL", "done": bool(settings.backend_url), "detail": "Set cloud backend URL"},
+            {"step": 2, "label": "Connector Identity", "done": bool(settings.connector_id and settings.connector_secret), "detail": "Set connector ID and secret"},
+            {"step": 3, "label": "Tenant/Home Mapping", "done": bool(settings.tenant_id and settings.home_id), "detail": "Set tenant_id and home_id"},
+            {"step": 4, "label": "Music Assistant Reachable", "done": has_ma, "detail": "Configure MA URL and token"},
+        ]
+
+    # Legacy mode checklist
     has_public = settings.public_configured
-    
-    # Check if Skill ID stored (via manual setup or ASK automation)
     meta = persistence.load_skill_metadata() if persistence else None
     has_skill = bool(meta and meta.skill_id)
-    manual_skill_configured = bool(meta and meta.manual_skill_configured)
     manual_ask_setup = bool(meta and meta.manual_ask_setup)
-    
-    # In Phase 1, ASK CLI is stubbed. Check if user manually configured.
-    # We no longer check for ASK directory that won't exist.
-    has_ask = manual_ask_setup
 
     return [
         {"step": 1, "label": "Music Assistant Reachable", "done": has_ma, "detail": "Configure MA URL"},
         {"step": 2, "label": "Music Assistant Token", "done": bool(settings.ma_token), "detail": "Provide long-lived token"},
         {"step": 3, "label": "Public URL Configured", "done": has_public, "detail": "Set public_base_url"},
         {"step": 4, "label": "Stream Endpoint Configured", "done": settings.stream_configured, "detail": "HTTPS stream endpoint"},
-        {"step": 5, "label": "ASK Setup (Optional in Phase 1)", "done": has_ask, "detail": "Manual ASK credential import"},
+        {"step": 5, "label": "ASK Setup (Optional in Phase 1)", "done": manual_ask_setup, "detail": "Manual ASK credential import"},
         {"step": 6, "label": "Alexa Skill Created", "done": has_skill, "detail": "Create or link skill"},
     ]
 

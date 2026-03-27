@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.api.alexa_webhook import router as alexa_router
+from app.api.connectors import router as connectors_router
+from app.api.health import router as health_router
+from app.logging_config import setup_logging
+from app.settings import settings
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    setup_logging(settings.log_level)
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    app.include_router(health_router)
+    app.include_router(alexa_router)
+    app.include_router(connectors_router)
+    return app
+
+
+app = create_app()

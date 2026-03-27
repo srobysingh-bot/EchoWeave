@@ -34,9 +34,11 @@
         <button class="btn btn-primary" onclick="validateMA()">
             Validate Music Assistant
         </button>
+        {% if settings.mode != 'connector' %}
         <button class="btn btn-secondary" onclick="validatePublic()">
             Validate Public Endpoint
         </button>
+        {% endif %}
     </div>
     <div id="action-result" class="action-result" style="display:none;"></div>
 </div>
@@ -44,6 +46,14 @@
 <div class="setup-form">
     <h2>Configuration</h2>
     <form id="setup-form" onsubmit="saveConfig(event)">
+        <div class="form-group">
+            <label for="mode">Mode</label>
+            <select id="mode" name="mode">
+                <option value="legacy" {% if settings.mode == 'legacy' %}selected{% endif %}>legacy</option>
+                <option value="connector" {% if settings.mode == 'connector' %}selected{% endif %}>connector</option>
+            </select>
+        </div>
+
         <div class="form-group">
             <label for="ma_base_url">Music Assistant URL</label>
             <input type="url" id="ma_base_url" name="ma_base_url"
@@ -56,19 +66,55 @@
                    value="{{ settings.ma_token }}"
                    placeholder="Long-lived token">
         </div>
-        <div class="form-group">
-            <label for="public_base_url">Public Base URL</label>
-            <input type="url" id="public_base_url" name="public_base_url"
-                   value="{{ settings.public_base_url }}"
-                   placeholder="https://echoweave.example.com">
+
+        <div id="connector-fields" {% if settings.mode != 'connector' %}style="display:none;"{% endif %}>
+            <div class="form-group">
+                <label for="backend_url">Cloud Backend URL</label>
+                <input type="url" id="backend_url" name="backend_url"
+                       value="{{ settings.backend_url }}"
+                       placeholder="https://alexa.company-domain">
+            </div>
+            <div class="form-group">
+                <label for="connector_id">Connector ID</label>
+                <input type="text" id="connector_id" name="connector_id"
+                       value="{{ settings.connector_id }}"
+                       placeholder="connector-home-001">
+            </div>
+            <div class="form-group">
+                <label for="connector_secret">Connector Secret</label>
+                <input type="password" id="connector_secret" name="connector_secret"
+                       value="{{ settings.connector_secret }}"
+                       placeholder="connector-secret">
+            </div>
+            <div class="form-group">
+                <label for="tenant_id">Tenant ID</label>
+                <input type="text" id="tenant_id" name="tenant_id"
+                       value="{{ settings.tenant_id }}"
+                       placeholder="tenant-001">
+            </div>
+            <div class="form-group">
+                <label for="home_id">Home ID</label>
+                <input type="text" id="home_id" name="home_id"
+                       value="{{ settings.home_id }}"
+                       placeholder="home-001">
+            </div>
         </div>
-        <div class="form-group">
-            <label for="stream_base_url">Stream Base URL</label>
-            <input type="url" id="stream_base_url" name="stream_base_url"
-                   value="{{ settings.stream_base_url }}"
-                   placeholder="https://stream.example.com">
+
+        <div id="legacy-fields" {% if settings.mode == 'connector' %}style="display:none;"{% endif %}>
+            <div class="form-group">
+                <label for="public_base_url">Public Base URL</label>
+                <input type="url" id="public_base_url" name="public_base_url"
+                       value="{{ settings.public_base_url }}"
+                       placeholder="https://echoweave.example.com">
+            </div>
+            <div class="form-group">
+                <label for="stream_base_url">Stream Base URL</label>
+                <input type="url" id="stream_base_url" name="stream_base_url"
+                       value="{{ settings.stream_base_url }}"
+                       placeholder="https://stream.example.com">
+            </div>
         </div>
-        
+
         <div class="form-group">
             <label for="locale">Alexa Language / Locale</label>
             <input type="text" id="locale" name="locale"
@@ -81,15 +127,16 @@
                    value="{{ settings.aws_default_region }}"
                    placeholder="us-east-1">
         </div>
-        
+
         <button type="submit" class="btn btn-primary">Save Configuration</button>
     </form>
 </div>
 
+{% if settings.mode != 'connector' %}
 <div class="setup-form">
     <h2>Manual Alexa Skill Setup (Phase 1)</h2>
     <p class="info-text">
-        In Phase 1, ASK automation is not yet available. If you have manually created an Alexa skill 
+        In Phase 1, ASK automation is not yet available. If you have manually created an Alexa skill
         in the <a href="https://developer.amazon.com/alexa/console/ask" target="_blank">Amazon Developer Console</a>,
         enter your skill ID below to mark the setup complete.
     </p>
@@ -117,6 +164,7 @@
     </form>
     <div id="skill-result" class="action-result" style="display:none;"></div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -196,8 +244,12 @@ async function validateMA() {
 }
 
 async function validatePublic() {
-    const pubUrl = document.getElementById('public_base_url').value;
-    
+    const publicInput = document.getElementById('public_base_url');
+    if (!publicInput) {
+        return;
+    }
+    const pubUrl = publicInput.value;
+
     if (!pubUrl) {
         alert("Please fill in Public Base URL first.");
         return;
@@ -245,6 +297,17 @@ async function saveConfig(e) {
         result.textContent = 'Save failed: ' + e.message;
         result.className = 'action-result error';
     }
+}
+
+const modeSelect = document.getElementById('mode');
+if (modeSelect) {
+    modeSelect.addEventListener('change', () => {
+        const connectorFields = document.getElementById('connector-fields');
+        const legacyFields = document.getElementById('legacy-fields');
+        const isConnector = modeSelect.value === 'connector';
+        if (connectorFields) connectorFields.style.display = isConnector ? 'block' : 'none';
+        if (legacyFields) legacyFields.style.display = isConnector ? 'none' : 'block';
+    });
 }
 </script>
 {% endblock %}

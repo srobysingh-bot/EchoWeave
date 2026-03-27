@@ -5,6 +5,24 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-27
+
+### Added
+
+- Add new `services/cloud-backend` FastAPI service skeleton with in-memory connector registry.
+- Implement cloud endpoints: `GET /health`, `POST /v1/alexa` (LaunchRequest), `POST /v1/connectors/register`, and `POST /v1/connectors/{connector_id}/heartbeat`.
+- Add cloud backend tests for health, LaunchRequest payload, connector registration, and heartbeat updates.
+- Add connector-mode modules in add-on: `app/connector/client.py`, `app/connector/registration.py`, and `app/connector/heartbeat.py`.
+- Add connector-mode tests for settings, setup page fields, status rendering, and registration client URL behavior.
+
+### Changed
+
+- Add mode-aware add-on config fields: `mode`, `backend_url`, `connector_id`, `connector_secret`, `tenant_id`, `home_id`.
+- Start connector registration and periodic heartbeat on add-on startup when `mode=connector`.
+- Update setup wizard to support connector-mode inputs and hide manual Alexa-skill setup in connector mode.
+- Extend status diagnostics to include connector identity and heartbeat runtime state.
+- Bump add-on/runtime markers to `0.3.0`.
+
 ## [0.2.4] - 2026-03-25
 
 ### Fixed

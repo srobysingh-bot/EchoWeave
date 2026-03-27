@@ -59,6 +59,12 @@ class SkillMetadata(BaseModel):
 
 class PersistedConfig(BaseModel):
     """User-facing config snapshot saved to disk."""
+    mode: str = "legacy"
+    backend_url: str = ""
+    connector_id: str = ""
+    connector_secret: str = ""
+    tenant_id: str = ""
+    home_id: str = ""
     ma_base_url: str = ""
     ma_token: str = ""
     public_base_url: str = ""

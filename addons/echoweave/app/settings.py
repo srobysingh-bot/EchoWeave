@@ -25,6 +25,12 @@ from app.core.constants import (
 
 
 TRACKED_CONFIG_FIELDS: tuple[str, ...] = (
+    "mode",
+    "backend_url",
+    "connector_id",
+    "connector_secret",
+    "tenant_id",
+    "home_id",
     "ma_base_url",
     "ma_token",
     "public_base_url",
@@ -59,6 +65,16 @@ def load_addon_options() -> dict[str, Any]:
 
 class Settings(BaseSettings):
     """Typed, validated application settings."""
+
+    # -- Runtime mode --------------------------------------------------------
+    mode: str = "legacy"
+
+    # -- Connector mode ------------------------------------------------------
+    backend_url: str = ""
+    connector_id: str = ""
+    connector_secret: str = ""
+    tenant_id: str = ""
+    home_id: str = ""
 
     # -- Music Assistant -----------------------------------------------------
     ma_base_url: str = ""
@@ -95,10 +111,18 @@ class Settings(BaseSettings):
 
     # -- validators ----------------------------------------------------------
 
-    @field_validator("ma_base_url", "public_base_url", "stream_base_url")
+    @field_validator("backend_url", "ma_base_url", "public_base_url", "stream_base_url")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/") if v else v
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        mode = (v or "legacy").strip().lower()
+        if mode not in {"legacy", "connector"}:
+            raise ValueError("mode must be one of ['legacy', 'connector']")
+        return mode
 
     @field_validator("log_level")
     @classmethod
@@ -123,8 +147,22 @@ class Settings(BaseSettings):
     # -- helpers -------------------------------------------------------------
 
     @property
+    def is_connector_mode(self) -> bool:
+        return self.mode == "connector"
+
+    @property
     def ma_configured(self) -> bool:
         return bool(self.ma_base_url and self.ma_token)
+
+    @property
+    def connector_configured(self) -> bool:
+        return bool(
+            self.backend_url
+            and self.connector_id
+            and self.connector_secret
+            and self.tenant_id
+            and self.home_id
+        )
 
     @property
     def public_configured(self) -> bool:

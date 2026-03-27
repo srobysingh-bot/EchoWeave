@@ -57,14 +57,54 @@ async def status_page(request: Request) -> HTMLResponse:
     ]
 
     diagnostics = {
+        "mode": {"value": "legacy", "source": "default"},
+        "backend_url": {"value": "", "source": "default"},
+        "connector_id": {"value": "", "source": "default"},
+        "tenant_id": {"value": "", "source": "default"},
+        "home_id": {"value": "", "source": "default"},
         "public_base_url": {"value": "", "source": "default"},
         "stream_base_url": {"value": "", "source": "default"},
         "public_probe_path": {"value": "/healthz", "source": "runtime"},
     }
+    connector_runtime = {
+        "registered": "false",
+        "registration_message": "not-started",
+        "last_heartbeat_status": "never",
+        "last_heartbeat_at": "",
+    }
+
     if config_svc:
         with_sources = config_svc.get_effective_with_sources()
+        diagnostics["mode"] = with_sources.get("mode", diagnostics["mode"])
+        diagnostics["backend_url"] = with_sources.get("backend_url", diagnostics["backend_url"])
+        diagnostics["connector_id"] = with_sources.get("connector_id", diagnostics["connector_id"])
+        diagnostics["tenant_id"] = with_sources.get("tenant_id", diagnostics["tenant_id"])
+        diagnostics["home_id"] = with_sources.get("home_id", diagnostics["home_id"])
         diagnostics["public_base_url"] = with_sources.get("public_base_url", diagnostics["public_base_url"])
         diagnostics["stream_base_url"] = with_sources.get("stream_base_url", diagnostics["stream_base_url"])
+
+    connector_client = registry.get_optional("connector_client")
+    connector_heartbeat = registry.get_optional("connector_heartbeat")
+    if connector_client:
+        connector_runtime = {
+            "registered": str(connector_client.state.registered).lower(),
+            "registration_message": connector_client.state.registration_message,
+            "last_heartbeat_status": connector_client.state.last_heartbeat_status,
+            "last_heartbeat_at": connector_client.state.last_heartbeat_at,
+        }
+    elif connector_heartbeat and hasattr(connector_heartbeat, "snapshot"):
+        connector_runtime = connector_heartbeat.snapshot()
+
+    items.append({
+        "label": "Connector Registration",
+        "status": "ok" if connector_runtime["registered"] == "true" else "warn",
+        "detail": connector_runtime["registration_message"],
+    })
+    items.append({
+        "label": "Connector Heartbeat",
+        "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
+        "detail": connector_runtime["last_heartbeat_status"],
+    })
 
     return templates.TemplateResponse(
         request,
@@ -74,6 +114,7 @@ async def status_page(request: Request) -> HTMLResponse:
             "items": items,
             "errors": errors,
             "diagnostics": diagnostics,
+            "connector_runtime": connector_runtime,
             "version": APP_VERSION,
             "timestamp": datetime.utcnow().isoformat() + "Z",
         },

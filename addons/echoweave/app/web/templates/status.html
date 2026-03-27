@@ -48,6 +48,51 @@
         </thead>
         <tbody>
             <tr>
+                <td>mode</td>
+                <td>{{ diagnostics.mode.value }}</td>
+                <td><code>{{ diagnostics.mode.source }}</code></td>
+            </tr>
+            <tr>
+                <td>backend_url</td>
+                <td>{{ diagnostics.backend_url.value }}</td>
+                <td><code>{{ diagnostics.backend_url.source }}</code></td>
+            </tr>
+            <tr>
+                <td>connector_id</td>
+                <td>{{ diagnostics.connector_id.value }}</td>
+                <td><code>{{ diagnostics.connector_id.source }}</code></td>
+            </tr>
+            <tr>
+                <td>tenant_id</td>
+                <td>{{ diagnostics.tenant_id.value }}</td>
+                <td><code>{{ diagnostics.tenant_id.source }}</code></td>
+            </tr>
+            <tr>
+                <td>home_id</td>
+                <td>{{ diagnostics.home_id.value }}</td>
+                <td><code>{{ diagnostics.home_id.source }}</code></td>
+            </tr>
+            <tr>
+                <td>connector_registered</td>
+                <td>{{ connector_runtime.registered }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>connector_registration_state</td>
+                <td>{{ connector_runtime.registration_message }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>connector_last_heartbeat_status</td>
+                <td>{{ connector_runtime.last_heartbeat_status }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>connector_last_heartbeat_at</td>
+                <td>{{ connector_runtime.last_heartbeat_at }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
                 <td>public_base_url</td>
                 <td>{{ diagnostics.public_base_url.value }}</td>
                 <td><code>{{ diagnostics.public_base_url.source }}</code></td>

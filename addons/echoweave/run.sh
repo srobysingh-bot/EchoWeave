@@ -8,6 +8,12 @@ if [ ! -f "$CONFIG_PATH" ]; then
     exit 1
 fi
 
+export ECHOWEAVE_MODE="$(bashio::config 'mode')"
+export ECHOWEAVE_BACKEND_URL="$(bashio::config 'backend_url')"
+export ECHOWEAVE_CONNECTOR_ID="$(bashio::config 'connector_id')"
+export ECHOWEAVE_CONNECTOR_SECRET="$(bashio::config 'connector_secret')"
+export ECHOWEAVE_TENANT_ID="$(bashio::config 'tenant_id')"
+export ECHOWEAVE_HOME_ID="$(bashio::config 'home_id')"
 export ECHOWEAVE_MA_BASE_URL="$(bashio::config 'ma_base_url')"
 export ECHOWEAVE_MA_TOKEN="$(bashio::config 'ma_token')"
 export ECHOWEAVE_PUBLIC_BASE_URL="$(bashio::config 'public_base_url')"
@@ -32,8 +38,12 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.2.4 starting"
+bashio::log.info " EchoWeave v0.3.0 starting"
 bashio::log.info "--------------------------------------------"
+bashio::log.info " Mode:          ${ECHOWEAVE_MODE:-legacy}"
+bashio::log.info " Backend URL:   ${ECHOWEAVE_BACKEND_URL:-<not set>}"
+bashio::log.info " Connector ID:  ${ECHOWEAVE_CONNECTOR_ID:-<not set>}"
+bashio::log.info " Tenant/Home:   ${ECHOWEAVE_TENANT_ID:-<not set>}/${ECHOWEAVE_HOME_ID:-<not set>}"
 bashio::log.info " MA URL:        ${ECHOWEAVE_MA_BASE_URL:-<not set>}"
 bashio::log.info " Public URL:    ${ECHOWEAVE_PUBLIC_BASE_URL:-<not set>}"
 bashio::log.info " Stream URL:    ${ECHOWEAVE_STREAM_BASE_URL:-<not set>}"

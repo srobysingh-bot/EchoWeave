@@ -18,6 +18,7 @@ def test_default_settings():
     assert s.locale == "en-US"
     assert s.debug is False
     assert s.allow_insecure_local_test is False
+    assert s.mode == "legacy"
     assert s.port == 5000
 
 
@@ -48,6 +49,21 @@ def test_ma_configured_property():
 
     s2 = Settings(ma_base_url="http://ma.local", ma_token="")
     assert s2.ma_configured is False
+
+
+def test_connector_configured_property():
+    s1 = Settings(
+        mode="connector",
+        backend_url="https://cloud.example.com",
+        connector_id="c1",
+        connector_secret="secret",
+        tenant_id="t1",
+        home_id="h1",
+    )
+    assert s1.connector_configured is True
+
+    s2 = Settings(mode="connector", backend_url="https://cloud.example.com")
+    assert s2.connector_configured is False
 
 
 def test_ui_auth_property():

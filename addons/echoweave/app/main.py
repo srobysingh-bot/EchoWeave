@@ -116,6 +116,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     registry.register("ma_client", ma_client)
 
+    # Connector mode startup (register + heartbeat)
+    if settings.is_connector_mode:
+        from app.connector.client import ConnectorClient
+        from app.connector.heartbeat import HeartbeatRunner
+        from app.connector.registration import register_connector
+
+        connector_client = ConnectorClient(
+            backend_url=settings.backend_url,
+            connector_id=settings.connector_id,
+            connector_secret=settings.connector_secret,
+            tenant_id=settings.tenant_id,
+            home_id=settings.home_id,
+        )
+        registry.register("connector_client", connector_client)
+
+        heartbeat_runner = HeartbeatRunner(connector_client, interval_seconds=30)
+        registry.register("connector_heartbeat", heartbeat_runner)
+
+        ma_reachable = False
+        try:
+            ma_reachable = await ma_client.ping()
+        except Exception:
+            logger.exception("Failed MA ping during connector registration startup.")
+
+        if settings.connector_configured:
+            await register_connector(connector_client, ma_reachable=ma_reachable)
+            await heartbeat_runner.start()
+        else:
+            connector_client.state.registration_message = "connector-config-missing"
+            logger.warning("Connector mode enabled but connector configuration is incomplete.")
+
     # Session store
     from app.alexa.session_store import init_session_store
     session_store = init_session_store(persistence=persistence)
@@ -133,7 +164,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if client:
             checker = MAHealthChecker(client)
             return await checker.run_all(
-                settings.stream_base_url, 
+                settings.stream_base_url,
                 settings.allow_insecure_local_test
             )
         return [{"key": "ma_reachable", "status": "fail", "message": "MA client not registered."}]
@@ -149,9 +180,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         return await check_skill_exists(persistence)
 
     health_svc.register_check(ma_checks)
-    health_svc.register_check(public_check)
-    health_svc.register_check(ask_check)
-    health_svc.register_check(skill_check)
+    if not settings.is_connector_mode:
+        health_svc.register_check(public_check)
+        health_svc.register_check(ask_check)
+        health_svc.register_check(skill_check)
 
     registry.register("health", health_svc)
 
