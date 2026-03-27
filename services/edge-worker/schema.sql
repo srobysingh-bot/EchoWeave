@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS connector_sessions (
   FOREIGN KEY(home_id) REFERENCES homes(id)
 );
 
+CREATE TABLE IF NOT EXISTS connector_bootstraps (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  home_id TEXT NOT NULL,
+  connector_id TEXT NOT NULL,
+  connector_secret_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(home_id) REFERENCES homes(id),
+  FOREIGN KEY(connector_id) REFERENCES home_connectors(connector_id)
+);
+
 CREATE TABLE IF NOT EXISTS playback_sessions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
@@ -89,5 +102,6 @@ CREATE TABLE IF NOT EXISTS stream_tokens (
 CREATE INDEX IF NOT EXISTS idx_alexa_accounts_home_id ON alexa_accounts(home_id);
 CREATE INDEX IF NOT EXISTS idx_home_connectors_home_id ON home_connectors(home_id);
 CREATE INDEX IF NOT EXISTS idx_connector_sessions_connector_id ON connector_sessions(connector_id);
+CREATE INDEX IF NOT EXISTS idx_connector_bootstraps_home_id ON connector_bootstraps(home_id);
 CREATE INDEX IF NOT EXISTS idx_playback_sessions_home_id ON playback_sessions(home_id);
 CREATE INDEX IF NOT EXISTS idx_stream_tokens_home_id ON stream_tokens(home_id);

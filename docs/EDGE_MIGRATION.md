@@ -29,6 +29,11 @@ Implemented endpoints:
 - `GET /v1/stream/:token`
 - `POST /v1/connectors/register`
 - `GET /v1/connectors/ws`
+- `POST /v1/admin/homes`
+- `POST /v1/admin/users`
+- `POST /v1/admin/alexa-accounts/link`
+- `POST /v1/admin/connectors/bootstrap`
+- `GET /v1/admin/homes/:tenant_id/:home_id/status`
 
 Implemented home Durable Object responsibilities:
 
@@ -97,6 +102,13 @@ Connector registration payload now supports:
 - alexa_source_queue_id
 - capabilities
 
+Provisioning/linking rules now enforced:
+
+- no default-home fallback routing
+- strict tenant/home/user/alexa identifier validation
+- cross-tenant mapping mismatches rejected
+- one Alexa account maps deterministically to one tenant/home record
+
 ## Running Worker Locally
 
 1. `cd services/edge-worker`
@@ -110,6 +122,16 @@ Connector registration payload now supports:
    - optional `CONNECTOR_BOOTSTRAP_SECRET`
 6. Start local Worker:
    - `npm run dev`
+
+## Cloudflare D1 Rollout Order
+
+Apply migrations in this order to avoid runtime/schema drift:
+
+1. Apply D1 schema update including `connector_bootstraps`.
+2. Deploy Worker code with `/v1/admin/*` onboarding routes.
+3. Provision homes/users/alexa mappings through admin APIs.
+4. Bootstrap connector credentials and rotate into add-on config.
+5. Restart add-on and verify `/v1/admin/homes/:tenant_id/:home_id/status` readiness.
 
 ## Running Add-on in Edge Mode
 
@@ -140,7 +162,7 @@ Expected behavior:
 
 - TODO: Configure Cloudflare account resources (Worker route, Durable Object migration, D1 binding IDs).
 - TODO: Provision production secret management for per-home edge shared secret material.
-- TODO: Complete Alexa cert chain and body signature cryptographic verification inside Worker runtime.
+- TODO: Complete cryptographic certificate-chain trust validation beyond leaf-certificate checks in Worker runtime.
 - TODO: Configure Alexa Skill endpoint and account-linking records in D1 (`alexa_accounts`, `users`, `homes`).
 - TODO: Configure Cloudflare Tunnel/origin identity for each home and update `homes.origin_base_url`.
 
@@ -149,7 +171,7 @@ Expected behavior:
 Implemented first path for “Alexa, ask EchoWeave to play”:
 
 1. Worker receives Alexa request.
-2. Worker validates envelope + timestamp + required signature headers and cert URL shape.
+2. Worker validates cert URL + certificate fetch/parsing + certificate SAN/time checks + timestamp freshness + RSA signature over exact request body.
 3. Worker resolves Alexa user to tenant/home via D1.
 4. Worker sends `prepare_play` to home Durable Object.
 5. Add-on resolves playable context from MA.
@@ -160,5 +182,12 @@ Implemented first path for “Alexa, ask EchoWeave to play”:
 
 ## Known Partial Items
 
-- Full Alexa certificate chain and body signature verification in Worker is still incomplete.
+- Full certificate chain cryptographic trust validation is still partial; leaf certificate checks and body signature verification are implemented.
 - Production tunnel deployment and per-home secret lifecycle are external infrastructure tasks.
+
+## Final Hardening Tasks
+
+- Enforce `ADMIN_API_KEY` in all non-local deployments.
+- Add edge rate limits for `/v1/alexa` and `/v1/admin/*`.
+- Complete full X.509 chain trust and revocation checks for Alexa cert validation.
+- Add security telemetry for signature failures and repeated admin auth failures.

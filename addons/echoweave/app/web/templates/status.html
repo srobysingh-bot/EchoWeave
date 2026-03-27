@@ -58,6 +58,16 @@
                 <td><code>{{ diagnostics.backend_url.source }}</code></td>
             </tr>
             <tr>
+                <td>worker_base_url</td>
+                <td>{{ diagnostics.worker_base_url.value }}</td>
+                <td><code>{{ diagnostics.worker_base_url.source }}</code></td>
+            </tr>
+            <tr>
+                <td>tunnel_base_url</td>
+                <td>{{ diagnostics.tunnel_base_url.value }}</td>
+                <td><code>{{ diagnostics.tunnel_base_url.source }}</code></td>
+            </tr>
+            <tr>
                 <td>connector_id</td>
                 <td>{{ diagnostics.connector_id.value }}</td>
                 <td><code>{{ diagnostics.connector_id.source }}</code></td>
@@ -107,6 +117,33 @@
                 <td>{{ diagnostics.public_probe_path.value }}</td>
                 <td><code>{{ diagnostics.public_probe_path.source }}</code></td>
             </tr>
+            {% if diagnostics.mode.value == 'edge' %}
+            <tr>
+                <td>worker_home_provisioned</td>
+                <td>{{ edge_remote.provisioned }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>alexa_account_linked</td>
+                <td>{{ edge_remote.alexa_account_linked }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>worker_connector_online</td>
+                <td>{{ edge_remote.connector_online }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>worker_origin_base_url</td>
+                <td>{{ edge_remote.origin_base_url }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            <tr>
+                <td>worker_queue_binding</td>
+                <td>{{ edge_remote.queue_binding }}</td>
+                <td><code>runtime</code></td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
 </div>

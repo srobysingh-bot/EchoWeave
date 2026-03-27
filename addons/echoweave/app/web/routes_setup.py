@@ -149,6 +149,32 @@ async def setup_page(request: Request, persistence=Depends(get_persistence)) -> 
     settings = config_svc.settings if config_svc else Settings()
 
     checklist = _build_checklist(settings, persistence)
+
+    if getattr(settings, "is_edge_mode", False):
+        from app.edge.admin_client import fetch_worker_home_status
+
+        remote = await fetch_worker_home_status(
+            worker_base_url=settings.worker_base_url,
+            tenant_id=settings.tenant_id,
+            home_id=settings.home_id,
+        )
+        checklist.extend(
+            [
+                {
+                    "step": len(checklist) + 1,
+                    "label": "Worker Home Provisioned",
+                    "done": bool(remote.get("provisioned", False)),
+                    "detail": str(remote.get("message", "worker status check")),
+                },
+                {
+                    "step": len(checklist) + 2,
+                    "label": "Alexa Account Linked",
+                    "done": bool(remote.get("alexa_account_linked", False)),
+                    "detail": "Link Alexa account mapping to tenant/home",
+                },
+            ]
+        )
+
     complete = sum(1 for item in checklist if item["done"])
     total = len(checklist)
 

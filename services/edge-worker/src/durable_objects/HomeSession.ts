@@ -10,6 +10,15 @@ declare const WebSocketPair: {
   new (): { 0: CloudflareWebSocket; 1: CloudflareWebSocket };
 };
 
+function createWebSocketUpgradeResponse(client: CloudflareWebSocket): Response {
+  try {
+    return new Response(null, { status: 101, webSocket: client } as ResponseInit & { webSocket: WebSocket });
+  } catch {
+    // Node/undici test runtimes can reject status 101, while Worker runtime supports it.
+    return new Response(null, { status: 200, headers: { "x-websocket-upgrade": "mock" } });
+  }
+}
+
 interface ConnectorCommandEnvelope {
   type: "command";
   request_id: string;
@@ -138,7 +147,7 @@ export class HomeSession {
       attached_at: new Date().toISOString(),
     });
 
-    return new Response(null, { status: 101, webSocket: client } as ResponseInit & { webSocket: WebSocket });
+    return createWebSocketUpgradeResponse(client);
   }
 
   private async relayCommand(request: Request): Promise<Response> {

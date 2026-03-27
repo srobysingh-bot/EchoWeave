@@ -1,5 +1,9 @@
+import {
+  issueSignedStreamToken,
+  validateAlexaTimestamp,
+  verifyAlexaRequestSignature,
+} from "./security";
 import { createPlaybackSession, recordStreamToken, resolveHomeByAlexaUser } from "./db";
-import { issueSignedStreamToken, signPayload, validateAlexaCertChainUrl, validateAlexaTimestamp } from "./security";
 import { AlexaRequestEnvelope, Env, PreparedPlayContext, StreamTokenClaims } from "./types";
 
 function json(data: unknown, status = 200): Response {
@@ -32,11 +36,18 @@ async function validateAlexaSignature(request: Request, env: Env): Promise<boole
 
   const certChainUrl = request.headers.get("SignatureCertChainUrl") ?? "";
   const signature = request.headers.get("Signature") ?? "";
-  if (!certChainUrl || !signature) return false;
-  if (!validateAlexaCertChainUrl(certChainUrl)) return false;
+  if (!certChainUrl || !signature) {
+    console.warn(JSON.stringify({ event: "alexa_signature_rejected", reason: "missing_signature_headers" }));
+    return false;
+  }
 
-  // TODO(cloudflare-bindings): add full cert chain + RSA SHA1 body verification in Worker runtime.
-  // This implementation currently enforces required headers + cert URL shape + timestamp validation.
+  const rawBody = await request.clone().arrayBuffer();
+  const verified = await verifyAlexaRequestSignature(certChainUrl, signature, rawBody);
+  if (!verified.ok) {
+    console.warn(JSON.stringify({ event: "alexa_signature_rejected", reason: verified.reason ?? "unknown" }));
+    return false;
+  }
+
   return true;
 }
 
@@ -80,7 +91,7 @@ export async function handleAlexaWebhook(request: Request, env: Env): Promise<Re
     return json(buildAlexaSpeechResponse("Request signature validation failed."), 401);
   }
 
-  const envelope = (await request.json()) as AlexaRequestEnvelope;
+  const envelope = (await request.clone().json()) as AlexaRequestEnvelope;
   const invalidReason = validateEnvelope(envelope);
   if (invalidReason) return json({ error: invalidReason }, 400);
 

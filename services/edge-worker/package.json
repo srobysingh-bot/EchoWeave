@@ -6,11 +6,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute ECHOWEAVE_DB --file=./schema.sql"
+    "db:migrate": "wrangler d1 execute ECHOWEAVE_DB --file=./schema.sql",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260320.0",
+    "@cloudflare/workers-types": "latest",
     "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
     "wrangler": "^4.8.0"
   }
 }

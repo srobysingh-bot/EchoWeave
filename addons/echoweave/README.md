@@ -60,10 +60,11 @@ EchoWeave is distributed as a custom Home Assistant add-on repository.
 Once installed and started, click **Open Web UI** to configure the bridge:
 
 1. **Music Assistant Settings:** Enter your MA Server URL (e.g. `http://homeassistant:8095`) and a Long-Lived Access Token.
-2. **Public Base URLs:** Enter your public HTTPS proxy URL for the Alexa Webhook (e.g., `https://echoweave.yourdomain.com`) and for audio streaming.
-3. Click **Validate and Save**. The setup wizard will ping the endpoints to ensure readiness.
+2. **Edge Mode Settings:** Configure worker_base_url, tunnel_base_url, connector identity, tenant/home IDs, and edge shared secret.
+3. **Provision and Link:** Ensure Worker provisioning APIs have home/user/alexa mapping configured.
+4. Click **Validate and Save**. The setup wizard and status page show edge readiness and linking state.
 
-### Phase 1: Manual Alexa Skill Setup
+### Edge Mode Alexa Skill Endpoint
 
 Completing the setup checklist in Phase 1 requires manually creating and configuring an Alexa skill:
 
@@ -71,7 +72,7 @@ Completing the setup checklist in Phase 1 requires manually creating and configu
 2. Create a new **Alexa Skills Kit (ASK)** skill with a custom model.
 3. In the skill's **Interaction Model**, add the custom intent `PlayAudio`.
   LaunchRequest is a request type (not an intent) and is handled automatically by EchoWeave.
-4. In **Endpoint**, set the default region endpoint to your public EchoWeave URL: `https://your-domain.com/alexa`
+4. In **Endpoint**, set the default region endpoint to your Worker URL: `https://your-worker-domain/v1/alexa`
 5. Build your interaction model.
 6. Copy your **Skill ID** (format: `amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 7. Return to the EchoWeave Setup page and fill in the **Manual Alexa Skill Setup (Phase 1)** form with:
@@ -100,6 +101,20 @@ Set these options in Home Assistant add-on configuration when mode is edge:
 - alexa_source_queue_id
 - ma_base_url
 - ma_token
+
+## Provisioning and Linking
+
+In edge mode, onboarding should be done through Worker admin endpoints:
+
+- `POST /v1/admin/homes`
+- `POST /v1/admin/users`
+- `POST /v1/admin/alexa-accounts/link`
+- `POST /v1/admin/connectors/bootstrap`
+- `GET /v1/admin/homes/:tenant_id/:home_id/status`
+
+The add-on status page calls Worker home status in edge mode and shows whether the system is still waiting for Alexa account linking.
+
+For exact API examples, see docs/WORKER_ONBOARDING.md.
 
 ## Reverse Proxy and Tunnel
 
@@ -144,7 +159,7 @@ python -m pytest app/tests/ -v
   1. Create an Alexa skill in the [Amazon Developer Console](https://developer.amazon.com/alexa/console/ask).
   2. Configure the skill's HTTPS endpoint to point to the public EchoWeave URL (e.g., `https://your-domain.com/alexa`).
   3. Enter the skill ID into EchoWeave's Setup form under **Manual Alexa Skill Setup (Phase 1)**.
-- Worker Alexa signature verification is only partially implemented today (header and cert URL checks plus timestamp checks). Full cryptographic verification remains pending.
+- Worker Alexa signature verification performs cert URL validation, cert fetch/parsing, SAN/time checks, request timestamp checks, and RSA-SHA1 verification against the exact request body.
 - **Session store is JSON-file-backed** (not a database) — suitable for single-device testing but not recommended for production multi-user deployments.
 - **No multi-user / multi-device concurrent testing yet** — limited isolation between simultaneous Alexa device sessions.
 

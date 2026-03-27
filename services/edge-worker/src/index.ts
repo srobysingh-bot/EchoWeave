@@ -1,4 +1,5 @@
 import { handleAlexaWebhook } from "./alexa";
+import { handleAdminRequest } from "./admin";
 import { handleConnectorRegister, handleConnectorWebSocket } from "./connectors";
 import { HomeSession } from "./durable_objects/HomeSession";
 import { handleStreamRequest } from "./stream";
@@ -15,7 +16,10 @@ function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("access-control-allow-origin", "*");
   headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
-  headers.set("access-control-allow-headers", "content-type,signature,signaturecertchainurl,x-connector-bootstrap-secret");
+  headers.set(
+    "access-control-allow-headers",
+    "content-type,authorization,signature,signaturecertchainurl,x-connector-bootstrap-secret",
+  );
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -37,6 +41,11 @@ export default {
 
       if (pathname === "/v1/alexa") {
         return withCors(await handleAlexaWebhook(request, env));
+      }
+
+      if (pathname.startsWith("/v1/admin/")) {
+        const adminResp = await handleAdminRequest(request, env, pathname);
+        if (adminResp) return withCors(adminResp);
       }
 
       if (pathname === "/v1/connectors/register") {

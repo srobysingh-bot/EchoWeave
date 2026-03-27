@@ -78,6 +78,16 @@ async def status_page(request: Request) -> HTMLResponse:
         "last_heartbeat_status": "never",
         "last_heartbeat_at": "",
     }
+    edge_remote = {
+        "reachable": False,
+        "provisioned": False,
+        "alexa_account_linked": False,
+        "connector_online": False,
+        "connector_registration_status": "unknown",
+        "origin_base_url": "",
+        "queue_binding": "",
+        "message": "not-checked",
+    }
 
     if config_svc:
         with_sources = config_svc.get_effective_with_sources()
@@ -122,6 +132,26 @@ async def status_page(request: Request) -> HTMLResponse:
             "last_heartbeat_at": "",
         }
 
+    if edge_mode and config_svc:
+        from app.edge.admin_client import fetch_worker_home_status
+
+        edge_remote = await fetch_worker_home_status(
+            worker_base_url=config_svc.settings.worker_base_url,
+            tenant_id=config_svc.settings.tenant_id,
+            home_id=config_svc.settings.home_id,
+        )
+
+        items.append({
+            "label": "Worker Provisioning",
+            "status": "ok" if edge_remote["provisioned"] else ("warn" if edge_remote["reachable"] else "fail"),
+            "detail": edge_remote["message"],
+        })
+        items.append({
+            "label": "Alexa Account Linking",
+            "status": "ok" if edge_remote["alexa_account_linked"] else "warn",
+            "detail": "linked" if edge_remote["alexa_account_linked"] else "waiting-for-link",
+        })
+
     items.append({
         "label": "Connector Registration",
         "status": "ok" if connector_runtime["registered"] == "true" else "warn",
@@ -144,5 +174,6 @@ async def status_page(request: Request) -> HTMLResponse:
             "connector_runtime": connector_runtime,
             "version": APP_VERSION,
             "timestamp": datetime.utcnow().isoformat() + "Z",
+                "edge_remote": edge_remote,
         },
     )

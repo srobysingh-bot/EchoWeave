@@ -1,8 +1,9 @@
 export interface Env {
   ECHOWEAVE_DB: D1Database;
-  HOME_SESSION: DurableObjectNamespace<HomeSessionDurableObject>;
+  HOME_SESSION: DurableObjectNamespace;
   STREAM_TOKEN_SIGNING_SECRET: string;
   CONNECTOR_BOOTSTRAP_SECRET?: string;
+  ADMIN_API_KEY?: string;
   EDGE_ORIGIN_SHARED_SECRET: string;
   ALEXA_SIGNATURE_ENFORCE?: string;
   STREAM_TOKEN_TTL_SECONDS?: string;

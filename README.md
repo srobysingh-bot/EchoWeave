@@ -33,7 +33,8 @@ You can add this repository to your Home Assistant instance by following these s
 
 - Experimental status: Edge architecture is active but still under migration hardening.
 - Public HTTPS and SSL required for Alexa skill endpoint in production.
-- Worker Alexa signature verification is still partially implemented and tracked for completion.
+- Worker Alexa signature verification now performs request-body signature checks using Alexa cert material, timestamp freshness enforcement, and cert URL/SAN/time validation.
+- Production onboarding is API-driven; manual SQL seeding is no longer required for home/user/link provisioning.
 
 ## Edge Mode Required Fields
 
@@ -50,3 +51,17 @@ Configure these add-on options for edge mode:
 - alexa_source_queue_id
 - ma_base_url
 - ma_token
+
+## Worker Onboarding APIs
+
+The Worker now exposes deterministic onboarding and linking endpoints:
+
+- POST /v1/admin/homes
+- POST /v1/admin/users
+- POST /v1/admin/alexa-accounts/link
+- POST /v1/admin/connectors/bootstrap
+- GET /v1/admin/homes/:tenant_id/:home_id/status
+
+These endpoints back the edge-mode provisioning lifecycle and eliminate default-home fallback behavior.
+
+For exact provisioning and linking commands, see docs/WORKER_ONBOARDING.md.
