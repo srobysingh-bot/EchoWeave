@@ -98,20 +98,16 @@ async def status_page(request: Request) -> HTMLResponse:
     elif connector_heartbeat and hasattr(connector_heartbeat, "snapshot"):
         connector_runtime = connector_heartbeat.snapshot()
 
-    items.append(
-        {
-            "label": "Connector Registration",
-            "status": "ok" if connector_runtime["registered"] == "true" else "warn",
-            "detail": connector_runtime["registration_message"],
-        }
-    )
-    items.append(
-        {
-            "label": "Connector Heartbeat",
-            "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
-            "detail": connector_runtime["last_heartbeat_status"],
-        }
-    )
+    items.append({
+        "label": "Connector Registration",
+        "status": "ok" if connector_runtime["registered"] == "true" else "warn",
+        "detail": connector_runtime["registration_message"],
+    })
+    items.append({
+        "label": "Connector Heartbeat",
+        "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
+        "detail": connector_runtime["last_heartbeat_status"],
+    })
 
     return templates.TemplateResponse(
         request,

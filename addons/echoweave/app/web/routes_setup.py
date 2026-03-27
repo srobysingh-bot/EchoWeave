@@ -200,12 +200,8 @@ async def save_skill(payload: SaveSkillRequest, persistence=Depends(get_persiste
         meta.manual_ask_setup = payload.manual_ask_setup
         persistence.save_skill_metadata(meta)
 
-        return JSONResponse(
-            {
-                "success": True,
-                "message": f"Skill {payload.skill_id} linked successfully. Setup checklist will update on reload.",
-            }
-        )
+        message = f"Skill {payload.skill_id} linked successfully. Setup checklist will update on reload."
+        return JSONResponse({"success": True, "message": message})
     except Exception as exc:
         logger.exception("Error saving manual skill configuration.")
         return JSONResponse({"success": False, "message": f"Error: {exc}"}, status_code=500)
@@ -235,12 +231,10 @@ async def save_config(config: PersistedConfig, persistence=Depends(get_persisten
         new_client = MusicAssistantClient(base_url=settings.ma_base_url, token=settings.ma_token)
         registry.register("ma_client", new_client)
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Configuration saved! Some changes may require full add-on restart.",
-            }
-        )
+        return JSONResponse(content={
+            "success": True,
+            "message": "Configuration saved! Some changes may require full add-on restart.",
+        })
     except Exception as exc:
         logger.exception("Error saving setup config.")
         return JSONResponse(content={"success": False, "message": str(exc)}, status_code=400)
