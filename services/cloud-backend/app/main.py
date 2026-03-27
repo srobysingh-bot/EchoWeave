@@ -21,7 +21,7 @@ async def lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
-    """Create API app and register all Sprint 1 routes."""
+    """Create API app and register Sprint 1 routes."""
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,

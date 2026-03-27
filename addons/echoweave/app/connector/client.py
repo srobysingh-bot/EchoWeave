@@ -84,7 +84,6 @@ class ConnectorClient:
 
     async def heartbeat(self, status: str = "online") -> bool:
         # Heartbeat keeps cloud-side connector state fresh.
-        # The cloud endpoint returns normalized state including last-seen time.
         url = f"{self.backend_url}/v1/connectors/{self.connector_id}/heartbeat"
         payload = {
             "connector_secret": self.connector_secret,
@@ -104,10 +103,7 @@ class ConnectorClient:
                 return False
             data = resp.json()
             self.state.last_heartbeat_status = data.get("status", status)
-            self.state.last_heartbeat_at = data.get(
-                "last_seen",
-                datetime.utcnow().isoformat() + "Z",
-            )
+            self.state.last_heartbeat_at = data.get("last_seen", datetime.utcnow().isoformat() + "Z")
             return True
         except Exception as exc:
             self.state.last_heartbeat_status = f"error:{type(exc).__name__}"

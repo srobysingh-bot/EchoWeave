@@ -29,7 +29,7 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
     has_ma = settings.ma_configured
 
     if getattr(settings, "is_connector_mode", False):
-        # Connector mode checklist focuses on cloud binding + local MA reachability.
+        # Connector mode checklist focuses on cloud binding and local MA reachability.
         return [
             {
                 "step": 1,
@@ -182,12 +182,7 @@ async def validate_public(payload: ValidatePublicRequest) -> JSONResponse:
     success = res["status"] == "ok"
     msg = res.get("message", "Validation completed.")
 
-    return JSONResponse(
-        content={
-            "success": success,
-            "message": msg,
-        }
-    )
+    return JSONResponse(content={"success": success, "message": msg})
 
 
 class SaveSkillRequest(BaseModel):
@@ -224,10 +219,7 @@ async def save_skill(payload: SaveSkillRequest, persistence=Depends(get_persiste
 
         persistence.save_skill_metadata(meta)
 
-        message = (
-            f"Skill {payload.skill_id} linked successfully. "
-            "Setup checklist will update on reload."
-        )
+        message = f"Skill {payload.skill_id} linked successfully. Setup checklist will update on reload."
         return JSONResponse({
             "success": True,
             "message": message,
@@ -267,12 +259,10 @@ async def save_config(config: PersistedConfig, persistence=Depends(get_persisten
         )
         registry.register("ma_client", new_client)
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Configuration saved! Some changes may require full add-on restart.",
-            }
-        )
+        return JSONResponse(content={
+            "success": True,
+            "message": "Configuration saved! Some changes may require full add-on restart.",
+        })
     except Exception as exc:
         logger.exception("Error saving setup config.")
         return JSONResponse(
