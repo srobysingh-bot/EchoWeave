@@ -17,6 +17,7 @@ from app.settings import settings
 async def lifespan(_: FastAPI):
     """Initialize logging and shared process state on startup."""
     setup_logging(settings.log_level)
+    # Sprint 1 baseline: initialize process-level logging only.
     yield
 
 

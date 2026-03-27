@@ -86,6 +86,7 @@ async def status_page(request: Request) -> HTMLResponse:
     connector_client = registry.get_optional("connector_client")
     connector_heartbeat = registry.get_optional("connector_heartbeat")
     if connector_client:
+        # Prefer a stable snapshot helper when available.
         if hasattr(connector_client.state, "snapshot"):
             state = connector_client.state.snapshot()
             connector_runtime = {

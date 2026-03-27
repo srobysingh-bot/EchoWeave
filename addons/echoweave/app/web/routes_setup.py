@@ -29,6 +29,7 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
     has_ma = settings.ma_configured
 
     if getattr(settings, "is_connector_mode", False):
+        # Connector mode checklist focuses on cloud binding + local MA reachability.
         return [
             {"step": 1, "label": "Connector Backend URL", "done": bool(settings.backend_url), "detail": "Set cloud backend URL"},
             {"step": 2, "label": "Connector Identity", "done": bool(settings.connector_id and settings.connector_secret), "detail": "Set connector ID and secret"},

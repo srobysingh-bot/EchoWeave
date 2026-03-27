@@ -46,6 +46,7 @@ class ConnectorClient:
         self.state = ConnectorRuntimeState()
 
     async def register(self, capabilities: dict[str, Any] | None = None) -> bool:
+        # Registration payload mirrors cloud backend register contract.
         payload = {
             "connector_id": self.connector_id,
             "tenant_id": self.tenant_id,
@@ -82,6 +83,7 @@ class ConnectorClient:
             return False
 
     async def heartbeat(self, status: str = "online") -> bool:
+        # Heartbeat keeps cloud-side connector state fresh.
         url = f"{self.backend_url}/v1/connectors/{self.connector_id}/heartbeat"
         payload = {
             "connector_secret": self.connector_secret,

@@ -48,6 +48,7 @@ options:
   allow_insecure_local_test: false
 
 # Home Assistant add-on schema (legacy + connector modes)
+# Connector mode keeps MA local while cloud handles Alexa ingress.
 schema:
   mode: list(legacy|connector)?
   backend_url: url?
