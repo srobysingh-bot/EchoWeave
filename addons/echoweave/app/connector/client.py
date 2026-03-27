@@ -17,6 +17,14 @@ class ConnectorRuntimeState:
     last_heartbeat_status: str = "never"
     last_heartbeat_at: str = ""
 
+    def snapshot(self) -> dict[str, str | bool]:
+        return {
+            "registered": self.registered,
+            "registration_message": self.registration_message,
+            "last_heartbeat_status": self.last_heartbeat_status,
+            "last_heartbeat_at": self.last_heartbeat_at,
+        }
+
 
 class ConnectorClient:
     def __init__(
@@ -50,11 +58,20 @@ class ConnectorClient:
             if resp.status_code != 200:
                 self.state.registered = False
                 self.state.registration_message = f"register-failed:{resp.status_code}"
-                logger.warning("Connector registration failed: status=%s body=%s", resp.status_code, resp.text)
+                logger.warning(
+                    "Connector registration failed: status=%s body=%s",
+                    resp.status_code,
+                    resp.text,
+                )
                 return False
             self.state.registered = True
             self.state.registration_message = "registered"
-            logger.info("Connector registered: connector_id=%s tenant_id=%s home_id=%s", self.connector_id, self.tenant_id, self.home_id)
+            logger.info(
+                "Connector registered: connector_id=%s tenant_id=%s home_id=%s",
+                self.connector_id,
+                self.tenant_id,
+                self.home_id,
+            )
             return True
         except Exception as exc:
             self.state.registered = False
@@ -74,7 +91,11 @@ class ConnectorClient:
             if resp.status_code != 200:
                 self.state.last_heartbeat_status = f"failed:{resp.status_code}"
                 self.state.last_heartbeat_at = datetime.utcnow().isoformat() + "Z"
-                logger.warning("Connector heartbeat failed: status=%s body=%s", resp.status_code, resp.text)
+                logger.warning(
+                    "Connector heartbeat failed: status=%s body=%s",
+                    resp.status_code,
+                    resp.text,
+                )
                 return False
             data = resp.json()
             self.state.last_heartbeat_status = data.get("status", status)

@@ -1,3 +1,5 @@
+"""Cloud backend FastAPI application."""
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -13,12 +15,18 @@ from app.settings import settings
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """Initialize logging and shared process state on startup."""
     setup_logging(settings.log_level)
     yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    """Build the backend API with health, Alexa, and connector routes."""
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+    )
     app.include_router(health_router)
     app.include_router(alexa_router)
     app.include_router(connectors_router)

@@ -26,6 +26,8 @@ ports:
   "5000/tcp": 5000
 ports_description:
   "5000/tcp": "EchoWeave admin UI and Alexa webhook"
+
+# Default runtime options
 options:
   mode: "legacy"
   backend_url: ""
@@ -44,6 +46,8 @@ options:
   log_level: "info"
   debug: false
   allow_insecure_local_test: false
+
+# Home Assistant add-on schema
 schema:
   mode: list(legacy|connector)?
   backend_url: url?
