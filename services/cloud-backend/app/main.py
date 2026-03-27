@@ -15,16 +15,13 @@ from app.settings import settings
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Initialize logging and shared process state on startup."""
+    """Initialize logging during app startup."""
     setup_logging(settings.log_level)
-    # Sprint 1 baseline: initialize process-level logging only.
     yield
 
 
 def create_app() -> FastAPI:
-    """Build the backend API with health, Alexa, and connector routes."""
-    # Keep API surface explicit for Sprint 1 and easy to extend in later phases.
-    # Route registration order is intentional for predictable diagnostics output.
+    """Create API app and register all Sprint 1 routes."""
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,

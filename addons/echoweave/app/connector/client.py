@@ -104,7 +104,10 @@ class ConnectorClient:
                 return False
             data = resp.json()
             self.state.last_heartbeat_status = data.get("status", status)
-            self.state.last_heartbeat_at = data.get("last_seen", datetime.utcnow().isoformat() + "Z")
+            self.state.last_heartbeat_at = data.get(
+                "last_seen",
+                datetime.utcnow().isoformat() + "Z",
+            )
             return True
         except Exception as exc:
             self.state.last_heartbeat_status = f"error:{type(exc).__name__}"

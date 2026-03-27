@@ -27,7 +27,6 @@ ports:
 ports_description:
   "5000/tcp": "EchoWeave admin UI and Alexa webhook"
 
-# Default runtime options
 options:
   mode: "legacy"
   backend_url: ""
@@ -47,9 +46,6 @@ options:
   debug: false
   allow_insecure_local_test: false
 
-# Home Assistant add-on schema (legacy + connector modes)
-# Connector mode keeps MA local while cloud handles Alexa ingress.
-# Legacy mode remains available for direct public endpoint operation.
 schema:
   mode: list(legacy|connector)?
   backend_url: url?

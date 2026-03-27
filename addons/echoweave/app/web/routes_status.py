@@ -33,8 +33,7 @@ async def status_page(request: Request) -> HTMLResponse:
 
     if health_svc:
         result = await health_svc.run_all()
-        
-        # Display name mapping
+
         key_map = {
             "ma_reachable": "Music Assistant Connection",
             "ma_auth_valid": "Music Assistant Auth",
@@ -43,18 +42,17 @@ async def status_page(request: Request) -> HTMLResponse:
             "ask_configured": "ASK Credentials",
             "skill_exists": "Alexa Skill",
         }
-        
-        for c in result.checks:
-            items.append({
-                "label": key_map.get(c.key, c.key),
-                "status": c.status,
-                "detail": c.message
-            })
 
-    # Find failures for top alert UI
-    errors: list[str] = [
-        item["detail"] for item in items if item["status"] == "fail"
-    ]
+        for c in result.checks:
+            items.append(
+                {
+                    "label": key_map.get(c.key, c.key),
+                    "status": c.status,
+                    "detail": c.message,
+                }
+            )
+
+    errors: list[str] = [item["detail"] for item in items if item["status"] == "fail"]
 
     diagnostics = {
         "mode": {"value": "legacy", "source": "default"},
@@ -86,7 +84,6 @@ async def status_page(request: Request) -> HTMLResponse:
     connector_client = registry.get_optional("connector_client")
     connector_heartbeat = registry.get_optional("connector_heartbeat")
     if connector_client:
-        # Prefer a stable snapshot helper when available.
         if hasattr(connector_client.state, "snapshot"):
             state = connector_client.state.snapshot()
             connector_runtime = {
@@ -105,17 +102,20 @@ async def status_page(request: Request) -> HTMLResponse:
     elif connector_heartbeat and hasattr(connector_heartbeat, "snapshot"):
         connector_runtime = connector_heartbeat.snapshot()
 
-    items.append({
-        "label": "Connector Registration",
-        "status": "ok" if connector_runtime["registered"] == "true" else "warn",
-        "detail": connector_runtime["registration_message"],
-    })
-    # Heartbeat surface is intentionally independent from registration surface.
-    items.append({
-        "label": "Connector Heartbeat",
-        "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
-        "detail": connector_runtime["last_heartbeat_status"],
-    })
+    items.append(
+        {
+            "label": "Connector Registration",
+            "status": "ok" if connector_runtime["registered"] == "true" else "warn",
+            "detail": connector_runtime["registration_message"],
+        }
+    )
+    items.append(
+        {
+            "label": "Connector Heartbeat",
+            "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",
+            "detail": connector_runtime["last_heartbeat_status"],
+        }
+    )
 
     return templates.TemplateResponse(
         request,
