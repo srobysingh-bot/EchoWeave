@@ -21,8 +21,8 @@ templates = Jinja2Templates(directory="app/web/templates")
 @router.get("/status", response_class=HTMLResponse)
 async def status_page(request: Request) -> HTMLResponse:
     """Render the status dashboard with live health indicators."""
-    from app.dependencies import get_health_service
     from app.core.service_registry import registry
+    from app.dependencies import get_health_service
 
     health_svc = get_health_service()
     config_svc = registry.get_optional("config_service")
@@ -33,7 +33,6 @@ async def status_page(request: Request) -> HTMLResponse:
 
     if health_svc:
         result = await health_svc.run_all()
-
         key_map = {
             "ma_reachable": "Music Assistant Connection",
             "ma_auth_valid": "Music Assistant Auth",
@@ -42,15 +41,12 @@ async def status_page(request: Request) -> HTMLResponse:
             "ask_configured": "ASK Credentials",
             "skill_exists": "Alexa Skill",
         }
-
         for c in result.checks:
-            items.append(
-                {
-                    "label": key_map.get(c.key, c.key),
-                    "status": c.status,
-                    "detail": c.message,
-                }
-            )
+            items.append({
+                "label": key_map.get(c.key, c.key),
+                "status": c.status,
+                "detail": c.message,
+            })
 
     errors: list[str] = [item["detail"] for item in items if item["status"] == "fail"]
 
