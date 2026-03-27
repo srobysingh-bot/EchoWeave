@@ -38,6 +38,7 @@ def _build_checklist(settings: Any, persistence: Any) -> list[dict[str, Any]]:
         ]
 
     # Legacy mode checklist
+    # Legacy flow keeps direct public URL and stream checks visible.
     has_public = settings.public_configured
     meta = persistence.load_skill_metadata() if persistence else None
     has_skill = bool(meta and meta.skill_id)

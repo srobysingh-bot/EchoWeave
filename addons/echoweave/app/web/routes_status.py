@@ -110,6 +110,7 @@ async def status_page(request: Request) -> HTMLResponse:
         "status": "ok" if connector_runtime["registered"] == "true" else "warn",
         "detail": connector_runtime["registration_message"],
     })
+    # Heartbeat surface is intentionally independent from registration surface.
     items.append({
         "label": "Connector Heartbeat",
         "status": "ok" if connector_runtime["last_heartbeat_status"] == "online" else "warn",

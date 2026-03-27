@@ -84,6 +84,7 @@ class ConnectorClient:
 
     async def heartbeat(self, status: str = "online") -> bool:
         # Heartbeat keeps cloud-side connector state fresh.
+        # The cloud endpoint returns normalized state including last-seen time.
         url = f"{self.backend_url}/v1/connectors/{self.connector_id}/heartbeat"
         payload = {
             "connector_secret": self.connector_secret,

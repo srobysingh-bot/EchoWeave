@@ -49,6 +49,7 @@ options:
 
 # Home Assistant add-on schema (legacy + connector modes)
 # Connector mode keeps MA local while cloud handles Alexa ingress.
+# Legacy mode remains available for direct public endpoint operation.
 schema:
   mode: list(legacy|connector)?
   backend_url: url?
