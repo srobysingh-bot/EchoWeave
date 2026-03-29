@@ -308,14 +308,36 @@ class MusicAssistantClient:
     async def _resolve_default_queue_id(self) -> str | None:
         players = await self.get_players()
         for player in players:
-            active_queue = player.get("active_queue") or player.get("active_source")
-            if active_queue:
-                logger.info(
-                    "MA queue auto-discovery selected queue_id=%s player_id=%s",
-                    str(active_queue),
-                    str(player.get("player_id") or ""),
-                )
-                return str(active_queue)
+            player_id = str(player.get("player_id") or "")
+            candidates = [
+                player.get("active_queue"),
+                player.get("active_source"),
+                player.get("queue_id"),
+            ]
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                queue_id = str(candidate).strip()
+                if not queue_id:
+                    continue
+                try:
+                    # Validate candidate queue id before selecting it; stale queue ids can
+                    # linger in player state and cause hard 404 lookup failures.
+                    await self._get_with_path_fallback(self._queue_paths(queue_id))
+                    logger.info(
+                        "MA queue auto-discovery selected queue_id=%s player_id=%s",
+                        queue_id,
+                        player_id,
+                    )
+                    return queue_id
+                except MusicAssistantError as exc:
+                    logger.warning(
+                        "MA queue candidate rejected queue_id=%s player_id=%s error=%s",
+                        queue_id,
+                        player_id,
+                        str(exc),
+                    )
+                    continue
         logger.warning("MA queue auto-discovery found no active queue")
         return None
 

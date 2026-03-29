@@ -173,7 +173,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         }),
       );
     }
-    return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 503);
+    // Return 200 with a valid Alexa speech envelope for recoverable runtime failures.
+    return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 200);
   }
 
   const prepared = (await doResp.json()) as PreparedPlayContext;
