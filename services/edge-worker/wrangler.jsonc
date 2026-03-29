@@ -23,7 +23,7 @@
     {
       "binding": "ECHOWEAVE_DB",
       "database_name": "echoweave-db",
-      "database_id": "TODO_REPLACE_DATABASE_ID"
+      "database_id": "5187f8a5-db84-45a2-8a05-2d315ee02cd8"
     }
   ],
   "vars": {
