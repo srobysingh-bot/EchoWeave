@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import json
+import re
 from typing import Any, Optional
 
 import httpx
@@ -229,6 +230,24 @@ class MusicAssistantClient:
             raise last_error
         raise MusicAssistantError("MA API fallback failed: no commands attempted")
 
+    def _is_stale_numeric_queue_id(self, queue_id: str) -> bool:
+        return bool(re.fullmatch(r"-?\d+", queue_id.strip()))
+
+    def _sanitize_queue_id(self, queue_id: str | None, *, source: str) -> str | None:
+        if queue_id is None:
+            return None
+        normalized = str(queue_id).strip()
+        if not normalized:
+            return None
+        if self._is_stale_numeric_queue_id(normalized):
+            logger.warning(
+                "Discarding queue_id=%s source=%s reason=stale_numeric_queue_id",
+                normalized,
+                source,
+            )
+            return None
+        return normalized
+
     # -- public API ----------------------------------------------------------
 
     async def ping(self) -> bool:
@@ -320,6 +339,13 @@ class MusicAssistantClient:
                 queue_id = str(candidate).strip()
                 if not queue_id:
                     continue
+                if self._is_stale_numeric_queue_id(queue_id):
+                    logger.warning(
+                        "MA queue candidate rejected queue_id=%s player_id=%s reason=stale_numeric_queue_id",
+                        queue_id,
+                        player_id,
+                    )
+                    continue
                 try:
                     # Validate candidate queue id before selecting it; stale queue ids can
                     # linger in player state and cause hard 404 lookup failures.
@@ -342,7 +368,8 @@ class MusicAssistantClient:
         return None
 
     async def get_queue_state(self, queue_id: str | None = None) -> dict[str, Any]:
-        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        requested_queue_id = self._sanitize_queue_id(queue_id, source="get_queue_state.request")
+        resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
             raise MusicAssistantError("No active queue available.")
 
@@ -396,7 +423,8 @@ class MusicAssistantClient:
         }
 
     async def get_current_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
-        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        requested_queue_id = self._sanitize_queue_id(queue_id, source="get_current_playable_item.request")
+        resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
             return None
 
@@ -413,7 +441,8 @@ class MusicAssistantClient:
         }
 
     async def get_next_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
-        resolved_queue_id = queue_id or await self._resolve_default_queue_id()
+        requested_queue_id = self._sanitize_queue_id(queue_id, source="get_next_playable_item.request")
+        resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
             return None
 
@@ -430,11 +459,35 @@ class MusicAssistantClient:
         }
 
     async def resolve_play_request(self, queue_id: str | None = None) -> dict[str, Any]:
-        playable = await self.get_current_playable_item(queue_id)
+        requested_queue_id = self._sanitize_queue_id(queue_id, source="resolve_play_request.request")
+
+        playable: dict[str, Any] | None = None
+        if requested_queue_id:
+            try:
+                playable = await self.get_current_playable_item(requested_queue_id)
+            except MusicAssistantError as exc:
+                if "MA API error: 404" in str(exc):
+                    logger.warning(
+                        "Requested queue_id=%s returned 404; discarding and re-resolving active queue",
+                        requested_queue_id,
+                    )
+                    requested_queue_id = None
+                else:
+                    raise
+
         if playable:
             return playable
 
-        playable = await self.get_next_playable_item(queue_id)
+        if requested_queue_id:
+            playable = await self.get_next_playable_item(requested_queue_id)
+            if playable:
+                return playable
+
+        playable = await self.get_current_playable_item(None)
+        if playable:
+            return playable
+
+        playable = await self.get_next_playable_item(None)
         if playable:
             return playable
 
@@ -474,15 +527,20 @@ class MusicAssistantClient:
         Returns ``(success, message)`` for connector acknowledgment.
         """
         try:
-            target_queue_id = queue_id
+            target_queue_id = self._sanitize_queue_id(queue_id, source="execute_play_command.request")
             players = await self.get_players()
 
             if not target_queue_id:
                 for player in players:
                     active_queue = player.get("active_queue") or player.get("active_source")
                     if active_queue:
-                        target_queue_id = str(active_queue)
-                        break
+                        candidate_queue_id = self._sanitize_queue_id(
+                            str(active_queue),
+                            source=f"execute_play_command.player:{player.get('player_id')}",
+                        )
+                        if candidate_queue_id:
+                            target_queue_id = candidate_queue_id
+                            break
 
             if target_queue_id:
                 await self._post_command("player_queues/play", queue_id=target_queue_id)

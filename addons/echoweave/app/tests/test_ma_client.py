@@ -7,7 +7,7 @@ import httpx
 
 from app.ma.client import MusicAssistantClient
 from app.ma.auth import build_auth_headers
-from app.core.exceptions import MusicAssistantAuthError, MusicAssistantUnreachableError
+from app.core.exceptions import MusicAssistantAuthError, MusicAssistantError, MusicAssistantUnreachableError
 
 
 # ---------------------------------------------------------------------------
@@ -126,4 +126,93 @@ async def test_get_players(mock_client: MusicAssistantClient):
     players = await mock_client.get_players()
     assert len(players) == 1
     assert players[0]["player_id"] == "p1"
+    await mock_client.close()
+
+
+@pytest.mark.anyio
+async def test_resolve_play_request_discards_numeric_requested_queue_id(mock_client: MusicAssistantClient):
+    seen: list[str | None] = []
+
+    async def _fake_get_current(queue_id: str | None = None):
+        seen.append(queue_id)
+        if queue_id is None:
+            return {
+                "queue_id": "queue-live",
+                "queue_item_id": "item1",
+                "origin_stream_path": "/edge/stream/queue-live/item1",
+                "content_type": "audio/mpeg",
+            }
+        return None
+
+    async def _fake_get_next(queue_id: str | None = None):
+        seen.append(queue_id)
+        return None
+
+    mock_client.get_current_playable_item = _fake_get_current
+    mock_client.get_next_playable_item = _fake_get_next
+
+    payload = await mock_client.resolve_play_request("-1452896388")
+    assert payload["queue_id"] == "queue-live"
+    assert seen == [None]
+    await mock_client.close()
+
+
+@pytest.mark.anyio
+async def test_resolve_play_request_discards_404_requested_queue_id(mock_client: MusicAssistantClient):
+    seen: list[str | None] = []
+
+    async def _fake_get_current(queue_id: str | None = None):
+        seen.append(queue_id)
+        if queue_id == "queue-stale":
+            raise MusicAssistantError("MA API error: 404 (method=GET path=/api/playerqueues/queue-stale body=)")
+        if queue_id is None:
+            return {
+                "queue_id": "queue-live",
+                "queue_item_id": "item1",
+                "origin_stream_path": "/edge/stream/queue-live/item1",
+                "content_type": "audio/mpeg",
+            }
+        return None
+
+    async def _fake_get_next(queue_id: str | None = None):
+        seen.append(queue_id)
+        return None
+
+    mock_client.get_current_playable_item = _fake_get_current
+    mock_client.get_next_playable_item = _fake_get_next
+
+    payload = await mock_client.resolve_play_request("queue-stale")
+    assert payload["queue_id"] == "queue-live"
+    assert seen == ["queue-stale", None]
+    await mock_client.close()
+
+
+@pytest.mark.anyio
+async def test_resolve_default_queue_id_rejects_numeric_candidate(mock_client: MusicAssistantClient):
+    requested_paths: list[str] = []
+
+    async def _fake_get_players():
+        return [
+            {
+                "player_id": "player-a",
+                "active_queue": "-1452896388",
+                "queue_id": "queue-live",
+            }
+        ]
+
+    async def _fake_get_with_path_fallback(paths: list[str]):
+        requested_paths.append(paths[0])
+
+        class _Resp:
+            def json(self):
+                return {"current_item": {}}
+
+        return _Resp()
+
+    mock_client.get_players = _fake_get_players
+    mock_client._get_with_path_fallback = _fake_get_with_path_fallback
+
+    resolved = await mock_client._resolve_default_queue_id()
+    assert resolved == "queue-live"
+    assert requested_paths == ["/api/player_queues/queue-live"]
     await mock_client.close()

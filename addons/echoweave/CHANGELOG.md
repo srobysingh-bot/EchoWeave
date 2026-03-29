@@ -5,6 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] - 2026-03-30
+
+### Fixed
+
+- Reject stale numeric MA queue ids discovered from player state to avoid hard 404 queue lookups during PlayAudio preparation.
+- Discard requested queue ids that return MA 404 and re-resolve against the active playable queue before failing.
+- Apply stale queue-id sanitation consistently across play resolution and play command paths.
+- Add regression tests for numeric queue-id rejection and 404 fallback behavior.
+- Align add-on and runtime version markers to `0.3.4`.
+
 ## [0.3.3] - 2026-03-29
 
 ### Fixed
