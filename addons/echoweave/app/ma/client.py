@@ -186,10 +186,13 @@ class MusicAssistantClient:
             ) from exc
 
     def _queue_paths(self, queue_id: str, suffix: str = "") -> list[str]:
+        normalized_queue_id = self._sanitize_queue_id(queue_id, source="queue_paths")
+        if not normalized_queue_id:
+            raise MusicAssistantError("Invalid or stale queue id rejected before MA queue GET.")
         # MA versions differ in queue REST route naming; try both variants.
         return [
-            f"/api/player_queues/{queue_id}{suffix}",
-            f"/api/playerqueues/{queue_id}{suffix}",
+            f"/api/player_queues/{normalized_queue_id}{suffix}",
+            f"/api/playerqueues/{normalized_queue_id}{suffix}",
         ]
 
     async def _get_with_path_fallback(self, paths: list[str]) -> httpx.Response:
@@ -247,6 +250,9 @@ class MusicAssistantClient:
             )
             return None
         return normalized
+
+    def _is_queue_not_found(self, exc: MusicAssistantError) -> bool:
+        return "MA API error: 404" in str(exc)
 
     # -- public API ----------------------------------------------------------
 
@@ -329,11 +335,11 @@ class MusicAssistantClient:
         for player in players:
             player_id = str(player.get("player_id") or "")
             candidates = [
-                player.get("active_queue"),
-                player.get("active_source"),
-                player.get("queue_id"),
+                ("active_queue", player.get("active_queue")),
+                ("active_source", player.get("active_source")),
+                ("queue_id", player.get("queue_id")),
             ]
-            for candidate in candidates:
+            for candidate_source, candidate in candidates:
                 if not candidate:
                     continue
                 queue_id = str(candidate).strip()
@@ -341,9 +347,10 @@ class MusicAssistantClient:
                     continue
                 if self._is_stale_numeric_queue_id(queue_id):
                     logger.warning(
-                        "MA queue candidate rejected queue_id=%s player_id=%s reason=stale_numeric_queue_id",
+                        "MA queue candidate rejected queue_id=%s player_id=%s candidate_source=%s reason=stale_numeric_queue_id",
                         queue_id,
                         player_id,
+                        candidate_source,
                     )
                     continue
                 try:
@@ -351,16 +358,18 @@ class MusicAssistantClient:
                     # linger in player state and cause hard 404 lookup failures.
                     await self._get_with_path_fallback(self._queue_paths(queue_id))
                     logger.info(
-                        "MA queue auto-discovery selected queue_id=%s player_id=%s",
+                        "MA queue auto-discovery selected queue_id=%s player_id=%s candidate_source=%s",
                         queue_id,
                         player_id,
+                        candidate_source,
                     )
                     return queue_id
                 except MusicAssistantError as exc:
                     logger.warning(
-                        "MA queue candidate rejected queue_id=%s player_id=%s error=%s",
+                        "MA queue candidate rejected queue_id=%s player_id=%s candidate_source=%s error=%s",
                         queue_id,
                         player_id,
+                        candidate_source,
                         str(exc),
                     )
                     continue
@@ -373,7 +382,20 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             raise MusicAssistantError("No active queue available.")
 
-        resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
+        try:
+            resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
+        except MusicAssistantError as exc:
+            if requested_queue_id and self._is_queue_not_found(exc):
+                logger.warning(
+                    "get_queue_state requested queue_id=%s returned 404; discarding and re-resolving active queue",
+                    requested_queue_id,
+                )
+                resolved_queue_id = await self._resolve_default_queue_id()
+                if not resolved_queue_id:
+                    raise MusicAssistantError("No active queue available.") from exc
+                resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
+            else:
+                raise
         data = resp.json()
         return {
             "queue_id": resolved_queue_id,
@@ -428,7 +450,20 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             return None
 
-        item = await self._select_queue_item(resolved_queue_id, prefer_current=True)
+        try:
+            item = await self._select_queue_item(resolved_queue_id, prefer_current=True)
+        except MusicAssistantError as exc:
+            if requested_queue_id and self._is_queue_not_found(exc):
+                logger.warning(
+                    "get_current_playable_item requested queue_id=%s returned 404; discarding and re-resolving active queue",
+                    requested_queue_id,
+                )
+                resolved_queue_id = await self._resolve_default_queue_id()
+                if not resolved_queue_id:
+                    return None
+                item = await self._select_queue_item(resolved_queue_id, prefer_current=True)
+            else:
+                raise
         if not item:
             return None
 
@@ -446,7 +481,20 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             return None
 
-        item = await self._select_queue_item(resolved_queue_id, prefer_current=False)
+        try:
+            item = await self._select_queue_item(resolved_queue_id, prefer_current=False)
+        except MusicAssistantError as exc:
+            if requested_queue_id and self._is_queue_not_found(exc):
+                logger.warning(
+                    "get_next_playable_item requested queue_id=%s returned 404; discarding and re-resolving active queue",
+                    requested_queue_id,
+                )
+                resolved_queue_id = await self._resolve_default_queue_id()
+                if not resolved_queue_id:
+                    return None
+                item = await self._select_queue_item(resolved_queue_id, prefer_current=False)
+            else:
+                raise
         if not item:
             return None
 
@@ -466,7 +514,7 @@ class MusicAssistantClient:
             try:
                 playable = await self.get_current_playable_item(requested_queue_id)
             except MusicAssistantError as exc:
-                if "MA API error: 404" in str(exc):
+                if self._is_queue_not_found(exc):
                     logger.warning(
                         "Requested queue_id=%s returned 404; discarding and re-resolving active queue",
                         requested_queue_id,

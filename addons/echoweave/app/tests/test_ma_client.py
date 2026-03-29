@@ -216,3 +216,44 @@ async def test_resolve_default_queue_id_rejects_numeric_candidate(mock_client: M
     assert resolved == "queue-live"
     assert requested_paths == ["/api/player_queues/queue-live"]
     await mock_client.close()
+
+
+@pytest.mark.anyio
+async def test_queue_paths_rejects_stale_numeric_queue_id(mock_client: MusicAssistantClient):
+    with pytest.raises(MusicAssistantError, match="Invalid or stale queue id rejected"):
+        mock_client._queue_paths("-1452896388")
+    await mock_client.close()
+
+
+@pytest.mark.anyio
+async def test_get_queue_state_discards_404_requested_queue(mock_client: MusicAssistantClient):
+    calls: list[str] = []
+
+    async def _fake_get_with_path_fallback(paths: list[str]):
+        path = paths[0]
+        calls.append(path)
+        if "/queue-stale" in path:
+            raise MusicAssistantError("MA API error: 404 (method=GET path=/api/playerqueues/queue-stale body=)")
+
+        class _Resp:
+            def json(self):
+                return {
+                    "state": "playing",
+                    "elapsed_time": 1,
+                    "current_item": {"queue_id": "queue-live"},
+                    "next_item": {},
+                }
+
+        return _Resp()
+
+    async def _fake_resolve_default_queue_id():
+        return "queue-live"
+
+    mock_client._get_with_path_fallback = _fake_get_with_path_fallback
+    mock_client._resolve_default_queue_id = _fake_resolve_default_queue_id
+
+    state = await mock_client.get_queue_state("queue-stale")
+    assert state["queue_id"] == "queue-live"
+    assert calls[0] == "/api/player_queues/queue-stale"
+    assert calls[1] == "/api/player_queues/queue-live"
+    await mock_client.close()
