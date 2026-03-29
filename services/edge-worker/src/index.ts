@@ -161,7 +161,13 @@ export default {
       }
 
       if (pathname === "/v1/connectors/ws") {
-        const resp = withCors(await handleConnectorWebSocket(request, env));
+        const wsResponse = await handleConnectorWebSocket(request, env);
+        // Do not clone websocket upgrade responses (status 101); cloning drops
+        // upgrade internals and can throw in Response constructor validation.
+        if (wsResponse.status === 101) {
+          return wsResponse;
+        }
+        const resp = withCors(wsResponse);
         resp.headers.set("x-request-id", requestId);
         return resp;
       }
