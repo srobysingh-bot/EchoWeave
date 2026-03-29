@@ -130,7 +130,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   const sessionStub = env.HOME_SESSION.get(doId);
   const doResp = await sessionStub.fetch("https://home-session/command", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-request-id": requestId },
     body: JSON.stringify({
       command_type: "prepare_play",
       payload: {
@@ -142,13 +142,36 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   });
 
   if (!doResp.ok) {
+    let doErrorText = "";
     try {
-      const errorPayload = (await doResp.clone().json()) as { error?: string };
+      doErrorText = await doResp.clone().text();
+      const errorPayload = (JSON.parse(doErrorText) as { error?: string }) ?? {};
+      console.warn(
+        JSON.stringify({
+          event: "connector_dispatch_failed",
+          request_id: requestId,
+          tenant_id: home.tenant_id,
+          home_id: home.home_id,
+          do_status: doResp.status,
+          do_error_body: doErrorText,
+          do_error: errorPayload.error ?? "",
+        }),
+      );
       if ((errorPayload.error ?? "").includes("timeout")) {
         console.warn(JSON.stringify({ event: "connector_dispatch_timeout", request_id: requestId, tenant_id: home.tenant_id, home_id: home.home_id }));
       }
     } catch {
-      // ignore parse failures
+      console.warn(
+        JSON.stringify({
+          event: "connector_dispatch_failed",
+          request_id: requestId,
+          tenant_id: home.tenant_id,
+          home_id: home.home_id,
+          do_status: doResp.status,
+          do_error_body: doErrorText,
+          parse_error: "failed-to-parse-do-error-body",
+        }),
+      );
     }
     return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 503);
   }

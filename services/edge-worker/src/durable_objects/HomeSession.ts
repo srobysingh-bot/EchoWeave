@@ -68,6 +68,15 @@ export class HomeSession {
         if (parsed.type === "response") {
           const pending = this.pending.get(parsed.request_id);
           if (!pending) return;
+          console.info(
+            JSON.stringify({
+              event: "connector_response_received",
+              request_id: parsed.request_id,
+              ok: parsed.ok,
+              connector_id: this.connectorMeta?.connector_id ?? "",
+              error: parsed.ok ? undefined : parsed.error,
+            }),
+          );
           clearTimeout(pending.timeout);
           this.pending.delete(parsed.request_id);
           if (parsed.ok) {
@@ -155,6 +164,7 @@ export class HomeSession {
       return this.json({ error: "connector-offline" }, 503);
     }
 
+    const parentRequestId = request.headers.get("x-request-id") ?? "";
     const body = (await request.json()) as {
       command_type: string;
       payload: Record<string, unknown>;
@@ -170,6 +180,17 @@ export class HomeSession {
       command_type: body.command_type,
       payload: body.payload ?? {},
     };
+    console.info(
+      JSON.stringify({
+        event: "connector_command_dispatch",
+        request_id: requestId,
+        parent_request_id: parentRequestId,
+        command_type: body.command_type,
+        timeout_ms: timeoutMs,
+        connector_id: this.connectorMeta?.connector_id ?? "",
+        payload: body.payload ?? {},
+      }),
+    );
 
     const commandPromise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -183,9 +204,29 @@ export class HomeSession {
 
     try {
       const payload = await commandPromise;
+      console.info(
+        JSON.stringify({
+          event: "connector_command_result",
+          request_id: requestId,
+          parent_request_id: parentRequestId,
+          ok: true,
+          payload,
+        }),
+      );
       return this.json(payload, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : "connector-command-failed";
+      console.warn(
+        JSON.stringify({
+          event: "connector_command_result",
+          request_id: requestId,
+          parent_request_id: parentRequestId,
+          ok: false,
+          error: message,
+          command_type: body.command_type,
+          connector_id: this.connectorMeta?.connector_id ?? "",
+        }),
+      );
       return this.json({ error: message }, 502);
     }
   }

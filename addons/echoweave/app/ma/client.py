@@ -8,6 +8,7 @@ structured error handling.
 from __future__ import annotations
 
 import logging
+import json
 from typing import Any, Optional
 
 import httpx
@@ -75,17 +76,31 @@ class MusicAssistantClient:
         last_exc: Exception | None = None
         for attempt in range(1, _MAX_RETRIES + 1):
             try:
+                logger.info("MA API request: method=GET path=%s", path)
                 resp = await client.get(path, **kwargs)
+                logger.info(
+                    "MA API response: method=GET path=%s status=%s",
+                    path,
+                    resp.status_code,
+                )
                 resp.raise_for_status()
                 return resp
             except httpx.ConnectError as exc:
                 last_exc = exc
                 logger.warning("MA connection attempt %d failed: %s", attempt, exc)
             except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                body = (exc.response.text or "")[:2000]
+                logger.warning(
+                    "MA API status error: method=GET path=%s status=%s body=%s",
+                    path,
+                    status,
+                    body,
+                )
                 if exc.response.status_code == 401:
                     raise MusicAssistantAuthError("MA token rejected (401).") from exc
                 raise MusicAssistantError(
-                    f"MA API error: {exc.response.status_code}"
+                    f"MA API error: {exc.response.status_code} (method=GET path={path} body={body})"
                 ) from exc
             except httpx.TimeoutException as exc:
                 last_exc = exc
@@ -123,11 +138,16 @@ class MusicAssistantClient:
         body: dict[str, Any] = {"command": command}
         body.update(payload)
 
-        logger.info("MA API request: url=%s command=%s", endpoint, command)
+        logger.info(
+            "MA API request: method=POST path=%s command=%s payload=%s",
+            endpoint,
+            command,
+            json.dumps(payload, separators=(",", ":"), default=str),
+        )
         try:
             resp = await client.post(endpoint, json=body)
             logger.info(
-                "MA API response: url=%s command=%s status=%s",
+                "MA API response: method=POST path=%s command=%s status=%s",
                 endpoint,
                 command,
                 resp.status_code,
@@ -149,17 +169,65 @@ class MusicAssistantClient:
             ) from exc
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            body_text = (exc.response.text or "")[:2000]
+            payload_text = json.dumps(payload, separators=(",", ":"), default=str)
             logger.warning(
-                "MA API status error: url=%s command=%s status=%s",
+                "MA API status error: method=POST path=%s command=%s status=%s body=%s",
                 endpoint,
                 command,
                 status,
+                body_text,
             )
             if status == 401:
                 raise MusicAssistantAuthError("MA token rejected (401).") from exc
             raise MusicAssistantError(
-                f"MA API error: {status} (command={command}, url={endpoint})"
+                f"MA API error: {status} (method=POST path={endpoint} command={command} payload={payload_text} body={body_text})"
             ) from exc
+
+    def _queue_paths(self, queue_id: str, suffix: str = "") -> list[str]:
+        # MA versions differ in queue REST route naming; try both variants.
+        return [
+            f"/api/player_queues/{queue_id}{suffix}",
+            f"/api/playerqueues/{queue_id}{suffix}",
+        ]
+
+    async def _get_with_path_fallback(self, paths: list[str]) -> httpx.Response:
+        last_error: MusicAssistantError | None = None
+        for idx, path in enumerate(paths):
+            try:
+                resp = await self._get(path)
+                if idx > 0:
+                    logger.info("MA API fallback path succeeded: method=GET path=%s", path)
+                return resp
+            except MusicAssistantError as exc:
+                last_error = exc
+                # Retry only for 404 on alternate path candidates.
+                if "MA API error: 404" in str(exc) and idx < len(paths) - 1:
+                    logger.warning("MA API 404 for path=%s; retrying alternate queue path", path)
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise MusicAssistantError("MA API fallback failed: no paths attempted")
+
+    async def _post_command_with_fallback(self, commands: list[str], **payload: Any) -> Any:
+        last_error: MusicAssistantError | None = None
+        for idx, command in enumerate(commands):
+            try:
+                result = await self._post_command(command, **payload)
+                if idx > 0:
+                    logger.info("MA API fallback command succeeded: command=%s", command)
+                return result
+            except MusicAssistantError as exc:
+                last_error = exc
+                # Retry only for 404 on alternate command names.
+                if "MA API error: 404" in str(exc) and idx < len(commands) - 1:
+                    logger.warning("MA API 404 for command=%s; retrying alternate command", command)
+                    continue
+                raise
+        if last_error:
+            raise last_error
+        raise MusicAssistantError("MA API fallback failed: no commands attempted")
 
     # -- public API ----------------------------------------------------------
 
@@ -198,14 +266,16 @@ class MusicAssistantClient:
 
     async def get_queue_items(self, queue_id: str) -> list[MAQueueItem]:
         """Return items in the specified MA queue."""
-        resp = await self._get(f"/api/player_queues/{queue_id}/items")
+        resp = await self._get_with_path_fallback(self._queue_paths(queue_id, "/items"))
         items = resp.json()
         return [MAQueueItem.model_validate(item) for item in items]
 
     async def get_queue_item(self, queue_id: str, queue_item_id: str) -> Optional[MAQueueItem]:
         """Return a specific queue item by id, or ``None`` if unavailable."""
         try:
-            resp = await self._get(f"/api/player_queues/{queue_id}/items/{queue_item_id}")
+            resp = await self._get_with_path_fallback(
+                self._queue_paths(queue_id, f"/items/{queue_item_id}"),
+            )
             data = resp.json()
             if isinstance(data, dict):
                 return MAQueueItem.model_validate(data)
@@ -219,7 +289,7 @@ class MusicAssistantClient:
 
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the currently-playing queue item, or ``None``."""
-        resp = await self._get(f"/api/player_queues/{queue_id}")
+        resp = await self._get_with_path_fallback(self._queue_paths(queue_id))
         data = resp.json()
         current = data.get("current_item")
         if current:
@@ -228,7 +298,7 @@ class MusicAssistantClient:
 
     async def get_next_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the next queue item, or ``None`` if queue is exhausted."""
-        resp = await self._get(f"/api/player_queues/{queue_id}")
+        resp = await self._get_with_path_fallback(self._queue_paths(queue_id))
         data = resp.json()
         next_item = data.get("next_item")
         if next_item:
@@ -240,7 +310,13 @@ class MusicAssistantClient:
         for player in players:
             active_queue = player.get("active_queue") or player.get("active_source")
             if active_queue:
+                logger.info(
+                    "MA queue auto-discovery selected queue_id=%s player_id=%s",
+                    str(active_queue),
+                    str(player.get("player_id") or ""),
+                )
                 return str(active_queue)
+        logger.warning("MA queue auto-discovery found no active queue")
         return None
 
     async def get_queue_state(self, queue_id: str | None = None) -> dict[str, Any]:
@@ -248,7 +324,7 @@ class MusicAssistantClient:
         if not resolved_queue_id:
             raise MusicAssistantError("No active queue available.")
 
-        resp = await self._get(f"/api/player_queues/{resolved_queue_id}")
+        resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
         data = resp.json()
         return {
             "queue_id": resolved_queue_id,
@@ -357,8 +433,8 @@ class MusicAssistantClient:
                 return item.uri
 
             # Fallback: command-based stream resolution in newer MA builds.
-            result = await self._post_command(
-                "player_queues/get_stream_url",
+            result = await self._post_command_with_fallback(
+                ["player_queues/get_stream_url", "playerqueues/get_stream_url"],
                 queue_id=queue_id,
                 queue_item_id=item_id,
             )

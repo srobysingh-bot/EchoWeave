@@ -224,6 +224,12 @@ class EdgeConnectorWSClient:
             return
 
         envelope = EdgeCommandEnvelope.model_validate(payload)
+        logger.info(
+            "edge_ws_command_received request_id=%s command_type=%s payload_queue_id=%s",
+            envelope.request_id,
+            envelope.command_type,
+            str(envelope.payload.get("queue_id") or ""),
+        )
 
         try:
             result = await self._command_handler(envelope.command_type, envelope.payload)
@@ -231,6 +237,13 @@ class EdgeConnectorWSClient:
                 request_id=envelope.request_id,
                 ok=True,
                 payload=result,
+            )
+            logger.info(
+                "edge_ws_command_response request_id=%s ok=true queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                envelope.request_id,
+                str(result.get("queue_id") or ""),
+                str(result.get("queue_item_id") or ""),
+                str(result.get("origin_stream_path") or ""),
             )
         except Exception as exc:
             logger.exception("Edge command failed: command=%s", envelope.command_type)
@@ -242,6 +255,11 @@ class EdgeConnectorWSClient:
                     message=str(exc),
                     details={"command_type": envelope.command_type},
                 ),
+            )
+            logger.error(
+                "edge_ws_command_response request_id=%s ok=false error_code=edge-command-failed error_message=%s",
+                envelope.request_id,
+                str(exc),
             )
 
         await self._send_json(response.model_dump())

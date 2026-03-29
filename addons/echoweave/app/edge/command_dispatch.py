@@ -20,12 +20,37 @@ async def execute_edge_command(
     command = (command_type or "").strip().lower()
     queue_id = str(payload.get("queue_id") or default_queue_id or "")
 
+    logger.info(
+        "edge_command_received command_type=%s payload_queue_id=%s resolved_queue_id=%s",
+        command,
+        str(payload.get("queue_id") or ""),
+        queue_id,
+    )
+
     if command == "prepare_play":
         prepare = PreparePlayPayload.model_validate(payload)
         requested_queue_id = (prepare.queue_id or queue_id).strip() or None
+        logger.info(
+            "prepare_play_start requested_queue_id=%s default_queue_id=%s intent_name=%s",
+            requested_queue_id,
+            default_queue_id,
+            prepare.intent_name,
+        )
         try:
             resolved = await ma_client.resolve_play_request(queue_id=requested_queue_id)
-        except MusicAssistantError:
+            logger.info(
+                "prepare_play_primary_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                resolved.get("queue_id"),
+                resolved.get("queue_item_id"),
+                resolved.get("origin_stream_path"),
+            )
+        except MusicAssistantError as exc:
+            logger.warning(
+                "prepare_play_primary_resolve_error exception_type=%s exception_message=%s queue_id=%s",
+                type(exc).__name__,
+                str(exc),
+                requested_queue_id,
+            )
             # If a configured queue binding is stale, retry with MA auto-discovery.
             if not requested_queue_id:
                 raise
@@ -33,8 +58,29 @@ async def execute_edge_command(
                 "prepare_play failed for queue_id=%s; retrying with auto-discovered active queue",
                 requested_queue_id,
             )
-            resolved = await ma_client.resolve_play_request(queue_id=None)
+            logger.info("prepare_play_fallback_entered requested_queue_id=%s", requested_queue_id)
+            try:
+                resolved = await ma_client.resolve_play_request(queue_id=None)
+                logger.info(
+                    "prepare_play_fallback_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                    resolved.get("queue_id"),
+                    resolved.get("queue_item_id"),
+                    resolved.get("origin_stream_path"),
+                )
+            except Exception as fallback_exc:
+                logger.error(
+                    "prepare_play_fallback_resolve_error exception_type=%s exception_message=%s",
+                    type(fallback_exc).__name__,
+                    str(fallback_exc),
+                )
+                raise
         resolved["intent_name"] = prepare.intent_name
+        logger.info(
+            "prepare_play_result queue_id=%s queue_item_id=%s origin_stream_path=%s",
+            resolved.get("queue_id"),
+            resolved.get("queue_item_id"),
+            resolved.get("origin_stream_path"),
+        )
         return resolved
 
     if command == "get_current_item":
