@@ -19,7 +19,7 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.3.1"
+    assert data["version"] == "0.3.2"
 
 
 def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
@@ -35,7 +35,7 @@ def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.3.1"
+    assert payload["version"] == "0.3.2"
     assert isinstance(payload["checks"], list)
     assert payload["checks"][0]["key"] == "service"
 
