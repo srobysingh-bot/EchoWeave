@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] - 2026-03-29
+
+### Fixed
+
+- Add edge `prepare_play` fallback: if a configured queue binding is stale/unplayable, retry with MA auto-discovered active queue.
+- Align add-on and runtime version markers to `0.3.3`.
+
 ## [0.3.2] - 2026-03-29
 
 ### Fixed

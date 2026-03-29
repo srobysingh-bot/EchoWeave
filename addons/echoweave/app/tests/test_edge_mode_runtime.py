@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.exceptions import MusicAssistantError
 from app.edge.auth import sign_edge_request, verify_edge_request
 from app.edge.command_dispatch import execute_edge_command
 from app.main import app
@@ -66,6 +67,30 @@ async def test_prepare_play_returns_playable_context():
     assert payload["queue_id"] == "queue-a"
     assert payload["queue_item_id"] == "item1"
     assert payload["origin_stream_path"].startswith("/edge/stream/")
+
+
+@pytest.mark.anyio
+async def test_prepare_play_falls_back_when_requested_queue_is_stale():
+    class _FakeMA:
+        async def resolve_play_request(self, queue_id=None):
+            if queue_id == "queue-stale":
+                raise MusicAssistantError("No playable queue item available.")
+            return {
+                "queue_id": queue_id or "queue-live",
+                "queue_item_id": "item-live",
+                "title": "Song Live",
+                "origin_stream_path": "/edge/stream/queue-live/item-live",
+                "content_type": "audio/mpeg",
+            }
+
+    payload = await execute_edge_command(
+        "prepare_play",
+        {"queue_id": "queue-stale", "intent_name": "PlayIntent"},
+        _FakeMA(),
+        default_queue_id="queue-default",
+    )
+    assert payload["queue_id"] == "queue-live"
+    assert payload["queue_item_id"] == "item-live"
 
 
 def test_status_surface_shows_edge_readiness(monkeypatch):

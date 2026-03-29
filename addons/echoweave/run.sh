@@ -42,7 +42,7 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.3.2 starting"
+bashio::log.info " EchoWeave v0.3.3 starting"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " Mode:          ${ECHOWEAVE_MODE:-legacy}"
 bashio::log.info " Backend URL:   ${ECHOWEAVE_BACKEND_URL:-<not set>}"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
 from app.ma.client import MusicAssistantClient
 
@@ -22,7 +23,17 @@ async def execute_edge_command(
     if command == "prepare_play":
         prepare = PreparePlayPayload.model_validate(payload)
         requested_queue_id = (prepare.queue_id or queue_id).strip() or None
-        resolved = await ma_client.resolve_play_request(queue_id=requested_queue_id)
+        try:
+            resolved = await ma_client.resolve_play_request(queue_id=requested_queue_id)
+        except MusicAssistantError:
+            # If a configured queue binding is stale, retry with MA auto-discovery.
+            if not requested_queue_id:
+                raise
+            logger.warning(
+                "prepare_play failed for queue_id=%s; retrying with auto-discovered active queue",
+                requested_queue_id,
+            )
+            resolved = await ma_client.resolve_play_request(queue_id=None)
         resolved["intent_name"] = prepare.intent_name
         return resolved
 
