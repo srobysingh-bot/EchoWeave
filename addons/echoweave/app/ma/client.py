@@ -254,6 +254,171 @@ class MusicAssistantClient:
     def _is_queue_not_found(self, exc: MusicAssistantError) -> bool:
         return "MA API error: 404" in str(exc)
 
+    def _normalize_query(self, query: str | None) -> str:
+        normalized = re.sub(r"\s+", " ", (query or "").strip().lower())
+        normalized = re.sub(r"^(songs?|music)\s+by\s+", "", normalized)
+        return normalized.strip()
+
+    def _extract_search_items(self, data: Any, media_type: str) -> list[dict[str, Any]]:
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+
+        if not isinstance(data, dict):
+            return []
+
+        keys = [media_type, "items", "result", "results"]
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+        nested = data.get("result")
+        if isinstance(nested, dict):
+            value = nested.get(media_type)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+        return []
+
+    async def _search_media(self, query: str, media_type: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        payload = {
+            "search": query,
+            "query": query,
+            "media_types": [media_type],
+            "limit": limit,
+        }
+        result = await self._post_command_with_fallback(["music/search"], **payload)
+        return self._extract_search_items(result, media_type)
+
+    async def _try_enqueue_search_result(
+        self,
+        item: dict[str, Any],
+        *,
+        media_type: str,
+        queue_id: str | None,
+        request_id: str,
+        home_id: str,
+        player_id: str,
+    ) -> dict[str, Any] | None:
+        uri = str(item.get("uri") or "").strip()
+        item_id = str(item.get("item_id") or item.get("id") or "").strip()
+        if not uri and not item_id:
+            return None
+
+        payload_candidates: list[dict[str, Any]] = []
+        if queue_id:
+            if uri:
+                payload_candidates.append({"queue_id": queue_id, "media_type": media_type, "uri": uri})
+            if item_id:
+                payload_candidates.append({"queue_id": queue_id, "media_type": media_type, "item_id": item_id})
+        if uri:
+            payload_candidates.append({"media_type": media_type, "uri": uri})
+        if item_id:
+            payload_candidates.append({"media_type": media_type, "item_id": item_id})
+
+        for payload in payload_candidates:
+            try:
+                await self._post_command_with_fallback(
+                    ["player_queues/play_media", "playerqueues/play_media"],
+                    **payload,
+                )
+                playable = await self.get_current_playable_item(
+                    queue_id,
+                    request_id=request_id,
+                    home_id=home_id,
+                    player_id=player_id,
+                )
+                if playable:
+                    return playable
+                playable = await self.get_next_playable_item(
+                    queue_id,
+                    request_id=request_id,
+                    home_id=home_id,
+                    player_id=player_id,
+                )
+                if playable:
+                    return playable
+            except MusicAssistantError:
+                continue
+        return None
+
+    async def _resolve_query_play_request(
+        self,
+        *,
+        query: str,
+        queue_id: str | None,
+        intent_name: str,
+        request_id: str,
+        home_id: str,
+        player_id: str,
+    ) -> dict[str, Any] | None:
+        normalized_query = self._normalize_query(query)
+        if not normalized_query:
+            return None
+
+        search_order = ["tracks", "artists", "albums", "playlists"]
+        for media_type in search_order:
+            results = await self._search_media(normalized_query, media_type)
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "ma_query_search",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": player_id,
+                        "intent_name": intent_name,
+                        "raw_query": query,
+                        "normalized_query": normalized_query,
+                        "media_type": media_type,
+                        "results_count": len(results),
+                    }
+                )
+            )
+            if not results:
+                continue
+
+            if media_type == "artists":
+                artist_name = str(results[0].get("name") or normalized_query).strip()
+                top_tracks = await self._search_media(artist_name, "tracks")
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_artist_top_tracks",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": player_id,
+                            "intent_name": intent_name,
+                            "artist": artist_name,
+                            "results_count": len(top_tracks),
+                        }
+                    )
+                )
+                if top_tracks:
+                    playable = await self._try_enqueue_search_result(
+                        top_tracks[0],
+                        media_type="tracks",
+                        queue_id=queue_id,
+                        request_id=request_id,
+                        home_id=home_id,
+                        player_id=player_id,
+                    )
+                    if playable:
+                        return playable
+                continue
+
+            playable = await self._try_enqueue_search_result(
+                results[0],
+                media_type=media_type,
+                queue_id=queue_id,
+                request_id=request_id,
+                home_id=home_id,
+                player_id=player_id,
+            )
+            if playable:
+                return playable
+
+        return None
+
     # -- public API ----------------------------------------------------------
 
     async def ping(self) -> bool:
@@ -587,15 +752,60 @@ class MusicAssistantClient:
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 
-    async def resolve_play_request(self, queue_id: str | None = None, *, request_id: str = "", home_id: str = "", player_id: str = "") -> dict[str, Any]:
+    async def resolve_play_request(
+        self,
+        queue_id: str | None = None,
+        *,
+        query: str | None = None,
+        intent_name: str = "",
+        request_id: str = "",
+        home_id: str = "",
+        player_id: str = "",
+    ) -> dict[str, Any]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="resolve_play_request.request")
+        normalized_query = self._normalize_query(query)
         log_ctx = {
             "event": "ma_resolve_play_request",
             "request_id": request_id,
             "home_id": home_id,
             "player_id": player_id,
             "requested_queue_id": queue_id,
+            "intent_name": intent_name,
+            "raw_query": query or "",
+            "normalized_query": normalized_query,
         }
+
+        if normalized_query:
+            playable = await self._resolve_query_play_request(
+                query=query or "",
+                queue_id=requested_queue_id,
+                intent_name=intent_name,
+                request_id=request_id,
+                home_id=home_id,
+                player_id=player_id,
+            )
+            if playable:
+                logger.info(
+                    json.dumps(
+                        {
+                            **log_ctx,
+                            "result": "query_playable",
+                            "queue_id": playable.get("queue_id"),
+                            "queue_item_id": playable.get("queue_item_id"),
+                        }
+                    )
+                )
+                return playable
+
+            logger.warning(json.dumps({**log_ctx, "result": "query_no_match"}))
+            raise MusicAssistantError(
+                json.dumps(
+                    {
+                        "code": "query_no_match",
+                        "message": "No playable results found for the requested query.",
+                    }
+                )
+            )
 
         playable: dict[str, Any] | None = None
         if requested_queue_id:

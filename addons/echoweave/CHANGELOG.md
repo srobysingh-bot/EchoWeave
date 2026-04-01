@@ -5,6 +5,17 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.6] - 2026-04-01
+
+### Fixed
+
+- Forward Alexa query slot text from Worker to connector `prepare_play` payload and add explicit Worker query logs (`alexa_intent_query`).
+- Add query normalization for phrases like `songs by <artist>` and `music by <artist>`.
+- Implement Music Assistant search fallback order for query-based play resolution: tracks, artists, albums, playlists.
+- Add artist-resolution fallback to fetch and queue top tracks when artist matches are found.
+- Add structured search observability logs (`prepare_play_start`, `ma_query_search`, `ma_artist_top_tracks`, `ma_resolve_play_request`).
+- Align add-on and runtime version markers to `0.3.6`.
+
 ## [0.3.5] - 2026-04-01
 
 ### Fixed

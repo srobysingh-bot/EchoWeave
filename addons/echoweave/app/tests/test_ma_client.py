@@ -133,7 +133,7 @@ async def test_get_players(mock_client: MusicAssistantClient):
 async def test_resolve_play_request_discards_numeric_requested_queue_id(mock_client: MusicAssistantClient):
     seen: list[str | None] = []
 
-    async def _fake_get_current(queue_id: str | None = None):
+    async def _fake_get_current(queue_id: str | None = None, **kwargs):
         seen.append(queue_id)
         if queue_id is None:
             return {
@@ -144,7 +144,7 @@ async def test_resolve_play_request_discards_numeric_requested_queue_id(mock_cli
             }
         return None
 
-    async def _fake_get_next(queue_id: str | None = None):
+    async def _fake_get_next(queue_id: str | None = None, **kwargs):
         seen.append(queue_id)
         return None
 
@@ -161,7 +161,7 @@ async def test_resolve_play_request_discards_numeric_requested_queue_id(mock_cli
 async def test_resolve_play_request_discards_404_requested_queue_id(mock_client: MusicAssistantClient):
     seen: list[str | None] = []
 
-    async def _fake_get_current(queue_id: str | None = None):
+    async def _fake_get_current(queue_id: str | None = None, **kwargs):
         seen.append(queue_id)
         if queue_id == "queue-stale":
             raise MusicAssistantError("MA API error: 404 (method=GET path=/api/playerqueues/queue-stale body=)")
@@ -174,7 +174,7 @@ async def test_resolve_play_request_discards_404_requested_queue_id(mock_client:
             }
         return None
 
-    async def _fake_get_next(queue_id: str | None = None):
+    async def _fake_get_next(queue_id: str | None = None, **kwargs):
         seen.append(queue_id)
         return None
 
@@ -257,3 +257,63 @@ async def test_get_queue_state_discards_404_requested_queue(mock_client: MusicAs
     assert calls[0] == "/api/player_queues/queue-stale"
     assert calls[1] == "/api/player_queues/queue-live"
     await mock_client.close()
+
+
+def test_normalize_query_strips_music_by_prefix(mock_client: MusicAssistantClient):
+    assert mock_client._normalize_query("songs by arijit singh") == "arijit singh"
+    assert mock_client._normalize_query("music by arijit singh") == "arijit singh"
+
+
+@pytest.mark.anyio
+async def test_resolve_play_request_prefers_query_search_order(mock_client: MusicAssistantClient):
+    searched: list[str] = []
+
+    async def _fake_search_media(query: str, media_type: str, *, limit: int = 10):
+        searched.append(media_type)
+        if media_type == "albums":
+            return [{"uri": "ma:album:1", "name": "Album A"}]
+        return []
+
+    async def _fake_try_enqueue(*args, **kwargs):
+        return {
+            "queue_id": "queue-live",
+            "queue_item_id": "item1",
+            "origin_stream_path": "/edge/stream/queue-live/item1",
+            "content_type": "audio/mpeg",
+        }
+
+    mock_client._search_media = _fake_search_media
+    mock_client._try_enqueue_search_result = _fake_try_enqueue
+
+    payload = await mock_client.resolve_play_request(query="songs by arijit singh", intent_name="PlayIntent")
+    assert payload["queue_id"] == "queue-live"
+    assert searched == ["tracks", "artists", "albums"]
+
+
+@pytest.mark.anyio
+async def test_resolve_play_request_uses_artist_top_tracks(mock_client: MusicAssistantClient):
+    searched: list[tuple[str, str]] = []
+
+    async def _fake_search_media(query: str, media_type: str, *, limit: int = 10):
+        searched.append((media_type, query))
+        if media_type == "artists":
+            return [{"name": "Arijit Singh", "uri": "ma:artist:1"}]
+        if media_type == "tracks" and query == "Arijit Singh":
+            return [{"uri": "ma:track:1", "name": "Top Track"}]
+        return []
+
+    async def _fake_try_enqueue(*args, **kwargs):
+        return {
+            "queue_id": "queue-live",
+            "queue_item_id": "item-top",
+            "origin_stream_path": "/edge/stream/queue-live/item-top",
+            "content_type": "audio/mpeg",
+        }
+
+    mock_client._search_media = _fake_search_media
+    mock_client._try_enqueue_search_result = _fake_try_enqueue
+
+    payload = await mock_client.resolve_play_request(query="music by arijit singh", intent_name="PlayIntent")
+    assert payload["queue_item_id"] == "item-top"
+    assert ("artists", "arijit singh") in searched
+    assert ("tracks", "Arijit Singh") in searched

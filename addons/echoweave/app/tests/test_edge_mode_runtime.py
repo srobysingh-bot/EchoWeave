@@ -40,7 +40,7 @@ def test_edge_stream_signature_validation_round_trip():
 @pytest.mark.anyio
 async def test_prepare_play_returns_playable_context():
     class _FakeMA:
-        async def resolve_play_request(self, queue_id=None):
+        async def resolve_play_request(self, queue_id=None, **kwargs):
             return {
                 "queue_id": queue_id or "q1",
                 "queue_item_id": "item1",
@@ -72,7 +72,7 @@ async def test_prepare_play_returns_playable_context():
 @pytest.mark.anyio
 async def test_prepare_play_falls_back_when_requested_queue_is_stale():
     class _FakeMA:
-        async def resolve_play_request(self, queue_id=None):
+        async def resolve_play_request(self, queue_id=None, **kwargs):
             if queue_id == "queue-stale":
                 raise MusicAssistantError("No playable queue item available.")
             return {

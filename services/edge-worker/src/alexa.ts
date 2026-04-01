@@ -21,6 +21,33 @@ function extractAlexaUserId(envelope: AlexaRequestEnvelope): string {
   );
 }
 
+function normalizeIntentQuery(rawQuery: string): string {
+  return rawQuery
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^(songs?|music)\s+by\s+/, "")
+    .trim();
+}
+
+function extractIntentQuery(envelope: AlexaRequestEnvelope): string {
+  const slots = envelope.request?.intent?.slots;
+  if (!slots || typeof slots !== "object") return "";
+
+  const named = (slots as Record<string, unknown>).query;
+  if (named && typeof named === "object") {
+    const value = (named as { value?: unknown }).value;
+    if (typeof value === "string") return value;
+  }
+
+  for (const slot of Object.values(slots)) {
+    if (!slot || typeof slot !== "object") continue;
+    const value = (slot as { value?: unknown }).value;
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
 function validateEnvelope(envelope: AlexaRequestEnvelope): string | null {
   if (!envelope || typeof envelope !== "object") return "invalid-json";
   if (!envelope.version || !envelope.request?.type) return "invalid-envelope";
@@ -143,9 +170,20 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
 
   const requestType = envelope.request?.type ?? "";
   const intentName = envelope.request?.intent?.name ?? "";
+  const rawQuery = extractIntentQuery(envelope);
+  const normalizedQuery = normalizeIntentQuery(rawQuery);
 
   // Log 4: Request type and intent
   console.info(JSON.stringify({ event: "alexa_envelope_parsed", request_id: requestId, request_type: requestType, intent_name: intentName || undefined }));
+  console.info(
+    JSON.stringify({
+      event: "alexa_intent_query",
+      request_id: requestId,
+      intent_name: intentName || undefined,
+      raw_query: rawQuery,
+      normalized_query: normalizedQuery,
+    }),
+  );
 
   if (requestType === "LaunchRequest") {
     console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start." }));
@@ -208,6 +246,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       payload: {
         queue_id: home.alexa_source_queue_id ?? undefined,
         intent_name: intentName,
+        query: rawQuery || undefined,
       },
       timeout_ms: 8000,
     }),

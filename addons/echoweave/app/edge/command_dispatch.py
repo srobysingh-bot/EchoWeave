@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.core.exceptions import MusicAssistantError
@@ -8,6 +9,12 @@ from app.edge.models import PreparePlayPayload
 from app.ma.client import MusicAssistantClient
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_query(query: str) -> str:
+    normalized = re.sub(r"\s+", " ", (query or "").strip().lower())
+    normalized = re.sub(r"^(songs?|music)\s+by\s+", "", normalized)
+    return normalized.strip()
 
 
 async def execute_edge_command(
@@ -30,14 +37,22 @@ async def execute_edge_command(
     if command == "prepare_play":
         prepare = PreparePlayPayload.model_validate(payload)
         requested_queue_id = (prepare.queue_id or queue_id).strip() or None
+        raw_query = (prepare.query or "").strip()
+        normalized_query = _normalize_query(raw_query)
         logger.info(
-            "prepare_play_start requested_queue_id=%s default_queue_id=%s intent_name=%s",
+            "prepare_play_start requested_queue_id=%s default_queue_id=%s intent_name=%s raw_query=%s normalized_query=%s",
             requested_queue_id,
             default_queue_id,
             prepare.intent_name,
+            raw_query,
+            normalized_query,
         )
         try:
-            resolved = await ma_client.resolve_play_request(queue_id=requested_queue_id)
+            resolved = await ma_client.resolve_play_request(
+                queue_id=requested_queue_id,
+                query=raw_query or None,
+                intent_name=prepare.intent_name,
+            )
             logger.info(
                 "prepare_play_primary_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
                 resolved.get("queue_id"),
@@ -60,7 +75,11 @@ async def execute_edge_command(
             )
             logger.info("prepare_play_fallback_entered requested_queue_id=%s", requested_queue_id)
             try:
-                resolved = await ma_client.resolve_play_request(queue_id=None)
+                resolved = await ma_client.resolve_play_request(
+                    queue_id=None,
+                    query=raw_query or None,
+                    intent_name=prepare.intent_name,
+                )
                 logger.info(
                     "prepare_play_fallback_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
                     resolved.get("queue_id"),

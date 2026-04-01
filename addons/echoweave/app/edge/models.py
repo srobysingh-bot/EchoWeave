@@ -58,6 +58,7 @@ class EdgeResponseEnvelope(BaseModel):
 class PreparePlayPayload(BaseModel):
     queue_id: str = ""
     intent_name: str = ""
+    query: str = ""
 
 
 class PreparedPlayContext(BaseModel):

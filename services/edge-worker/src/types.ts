@@ -60,6 +60,7 @@ export interface ConnectorRegistrationPayload {
 export interface PreparePlayRequest {
   queue_id?: string;
   intent_name?: string;
+  query?: string;
 }
 
 export interface PreparedPlayContext {
