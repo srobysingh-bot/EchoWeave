@@ -422,7 +422,92 @@ class MusicAssistantClient:
                             }
                         )
                     )
-                    return playable
+                    playback_started = False
+                    effective_queue_id = self._sanitize_queue_id(
+                        str(playable.get("queue_id") or payload.get("queue_id") or ""),
+                        source="try_enqueue_search_result.playable.current",
+                    )
+                    start_attempts: list[tuple[list[str], dict[str, Any], str]] = []
+                    if effective_queue_id:
+                        start_attempts.append(
+                            (
+                                ["player_queues/play", "playerqueues/play"],
+                                {"queue_id": effective_queue_id},
+                                "queue",
+                            )
+                        )
+                    if player_id:
+                        start_attempts.append(
+                            (
+                                ["players/cmd/play"],
+                                {"player_id": player_id},
+                                "player",
+                            )
+                        )
+
+                    for start_commands, start_payload, start_target in start_attempts:
+                        try:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_attempt",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "commands": start_commands,
+                                        "payload": start_payload,
+                                    }
+                                )
+                            )
+                            start_response = await self._post_command_with_fallback(
+                                start_commands,
+                                **start_payload,
+                            )
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_response",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "response": start_response,
+                                    }
+                                )
+                            )
+                            playback_started = True
+                            break
+                        except MusicAssistantError as start_exc:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_attempt_failed",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "payload": start_payload,
+                                        "error": str(start_exc),
+                                    }
+                                )
+                            )
+
+                    if playback_started:
+                        return playable
+
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_playback_start_failed_after_enqueue",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": player_id,
+                                "queue_id": playable.get("queue_id"),
+                                "queue_item_id": playable.get("queue_item_id"),
+                            }
+                        )
+                    )
                 playable = await self.get_next_playable_item(
                     queue_id,
                     request_id=request_id,
@@ -443,7 +528,92 @@ class MusicAssistantClient:
                             }
                         )
                     )
-                    return playable
+                    playback_started = False
+                    effective_queue_id = self._sanitize_queue_id(
+                        str(playable.get("queue_id") or payload.get("queue_id") or ""),
+                        source="try_enqueue_search_result.playable.next",
+                    )
+                    start_attempts: list[tuple[list[str], dict[str, Any], str]] = []
+                    if effective_queue_id:
+                        start_attempts.append(
+                            (
+                                ["player_queues/play", "playerqueues/play"],
+                                {"queue_id": effective_queue_id},
+                                "queue",
+                            )
+                        )
+                    if player_id:
+                        start_attempts.append(
+                            (
+                                ["players/cmd/play"],
+                                {"player_id": player_id},
+                                "player",
+                            )
+                        )
+
+                    for start_commands, start_payload, start_target in start_attempts:
+                        try:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_attempt",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "commands": start_commands,
+                                        "payload": start_payload,
+                                    }
+                                )
+                            )
+                            start_response = await self._post_command_with_fallback(
+                                start_commands,
+                                **start_payload,
+                            )
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_response",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "response": start_response,
+                                    }
+                                )
+                            )
+                            playback_started = True
+                            break
+                        except MusicAssistantError as start_exc:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_playback_start_attempt_failed",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": player_id,
+                                        "target": start_target,
+                                        "payload": start_payload,
+                                        "error": str(start_exc),
+                                    }
+                                )
+                            )
+
+                    if playback_started:
+                        return playable
+
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_playback_start_failed_after_enqueue",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": player_id,
+                                "queue_id": playable.get("queue_id"),
+                                "queue_item_id": playable.get("queue_item_id"),
+                            }
+                        )
+                    )
             except MusicAssistantError as exc:
                 logger.warning(
                     json.dumps(
@@ -968,8 +1138,8 @@ class MusicAssistantClient:
                 logger.warning(
                     json.dumps(
                         {
+                            "event": "ma_query_resolved_to_playable",
                             **log_ctx,
-                            "phase": "query_resolved_to_playable",
                             "queue_id": playable.get("queue_id"),
                             "queue_item_id": playable.get("queue_item_id"),
                             "item": {
