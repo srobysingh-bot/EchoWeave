@@ -4,7 +4,7 @@
 # Application metadata
 # ---------------------------------------------------------------------------
 APP_NAME = "EchoWeave"
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.3.5"
 APP_DESCRIPTION = "Alexa bridge backend for Music Assistant"
 
 # ---------------------------------------------------------------------------

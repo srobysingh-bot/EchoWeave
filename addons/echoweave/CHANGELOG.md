@@ -5,8 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.3.4] - 2026-03-30
+## [0.3.5] - 2026-04-01
 
+### Fixed
+
+- Enable `observability` natively in `services/edge-worker/wrangler.jsonc` for persistent Cloudflare Worker logging.
+- Add `PlayAudio` intent mapping resolving to `AMAZON.SearchQuery` to reclaim media queries from global Alexa routing.
+- Correctly assign `invocationName` to avoid prohibited Amazon wake words (`weave bridge`).
+- Align add-on and runtime version markers to `0.3.5` and model version to `0.1.6`.
+
+## [0.3.4] - 2026-03-30
 ### Fixed
 
 - Reject stale numeric MA queue ids discovered from player state to avoid hard 404 queue lookups during PlayAudio preparation.

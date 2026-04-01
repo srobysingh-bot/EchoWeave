@@ -13,7 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Version of the interaction model embedded in this codebase.
-MODEL_VERSION = "0.1.5"
+MODEL_VERSION = "0.1.6"
 
 
 def build_interaction_model(locale: str = "en-US") -> dict[str, Any]:
