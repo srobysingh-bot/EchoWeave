@@ -31,6 +31,7 @@ export ECHOWEAVE_DEBUG="$(bashio::config 'debug')"
 export ECHOWEAVE_ALLOW_INSECURE_LOCAL_TEST="$(bashio::config 'allow_insecure_local_test')"
 export ECHOWEAVE_ALLOW_INSECURE="$ECHOWEAVE_ALLOW_INSECURE_LOCAL_TEST"
 export ECHOWEAVE_DATA_DIR="/data"
+export ECHOWEAVE_BUILD_ID="qr-20260401-8dc7588"
 
 if [ -z "$ECHOWEAVE_MA_BASE_URL" ]; then
     bashio::log.warning "Music Assistant base URL is not configured yet."
@@ -42,7 +43,8 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.3.6 starting"
+bashio::log.info " EchoWeave v0.3.7 starting"
+bashio::log.info " Build ID:      ${ECHOWEAVE_BUILD_ID}"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " Mode:          ${ECHOWEAVE_MODE:-legacy}"
 bashio::log.info " Backend URL:   ${ECHOWEAVE_BACKEND_URL:-<not set>}"

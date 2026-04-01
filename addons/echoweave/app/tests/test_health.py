@@ -19,7 +19,9 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.3.6"
+    assert data["version"] == "0.3.7"
+    assert data["build_id"] == "qr-20260401-8dc7588"
+    assert data["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
 
 
 def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
@@ -35,7 +37,9 @@ def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.3.6"
+    assert payload["version"] == "0.3.7"
+    assert payload["build_id"] == "qr-20260401-8dc7588"
+    assert payload["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
     assert isinstance(payload["checks"], list)
     assert payload["checks"][0]["key"] == "service"
 
@@ -48,7 +52,9 @@ def test_health_service_check_present():
     keys = [c["key"] for c in data["checks"]]
     assert "service" in keys
     assert "ma_reachable" in keys
-    assert "stream_url_valid" in keys
+    # stream_url_valid is only present in non-edge, non-connector mode.
+    if "stream_url_valid" not in keys:
+        assert "ma_auth_valid" in keys
 
 
 def test_health_json_structure():

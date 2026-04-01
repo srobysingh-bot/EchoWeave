@@ -1,11 +1,15 @@
 """Central constants, route prefixes, defaults, and file paths."""
 
+import os
+
 # ---------------------------------------------------------------------------
 # Application metadata
 # ---------------------------------------------------------------------------
 APP_NAME = "EchoWeave"
-APP_VERSION = "0.3.6"
+APP_VERSION = "0.3.7"
 APP_DESCRIPTION = "Alexa bridge backend for Music Assistant"
+APP_BUILD_ID = os.getenv("ECHOWEAVE_BUILD_ID", "qr-20260401-8dc7588")
+APP_QUERY_RESOLUTION_REV = "query-fallback-tracks-artists-albums-playlists-v2"
 
 # ---------------------------------------------------------------------------
 # Route prefixes

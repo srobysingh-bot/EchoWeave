@@ -7,7 +7,13 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.core.constants import APP_NAME, APP_VERSION, HEALTH_KEY_SERVICE
+from app.core.constants import (
+    APP_BUILD_ID,
+    APP_NAME,
+    APP_QUERY_RESOLUTION_REV,
+    APP_VERSION,
+    HEALTH_KEY_SERVICE,
+)
 
 router = APIRouter(tags=["health"])
 
@@ -19,6 +25,8 @@ async def healthz() -> JSONResponse:
         content={
             "status": "ok",
             "version": APP_VERSION,
+            "build_id": APP_BUILD_ID,
+            "query_resolution_rev": APP_QUERY_RESOLUTION_REV,
             "checks": [
                 {
                     "key": HEALTH_KEY_SERVICE,
@@ -64,6 +72,8 @@ async def health_check() -> JSONResponse:
         content={
             "status": overall,
             "version": APP_VERSION,
+            "build_id": APP_BUILD_ID,
+            "query_resolution_rev": APP_QUERY_RESOLUTION_REV,
             "checks": checks,
         },
         status_code=200 if overall in ("ok", "degraded") else 503,

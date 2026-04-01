@@ -18,7 +18,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.core.constants import APP_DESCRIPTION, APP_NAME, APP_VERSION
+from app.core.constants import (
+    APP_BUILD_ID,
+    APP_DESCRIPTION,
+    APP_NAME,
+    APP_QUERY_RESOLUTION_REV,
+    APP_VERSION,
+)
 from app.core.exceptions import EchoWeaveError
 from app.core.service_registry import registry
 from app.logging_config import setup_logging
@@ -87,9 +93,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         os.getenv("ECHOWEAVE_GIT_SHA")
         or os.getenv("GIT_COMMIT_SHA")
         or os.getenv("SOURCE_COMMIT")
-        or "unknown"
+        or APP_BUILD_ID
     )
-    logger.info("%s v%s starting up. build_sha=%s", APP_NAME, APP_VERSION, build_sha)
+    logger.info(
+        "%s v%s starting up. build_sha=%s build_id=%s query_resolution_rev=%s",
+        APP_NAME,
+        APP_VERSION,
+        build_sha,
+        APP_BUILD_ID,
+        APP_QUERY_RESOLUTION_REV,
+    )
     logger.info("Static directory: %s (exists=%s)", app.state.static_dir, STATIC_DIR.is_dir())
     logger.info("Template directory: %s (exists=%s)", app.state.template_dir, app.state.template_dir_exists)
 

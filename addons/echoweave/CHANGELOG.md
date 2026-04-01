@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.7] - 2026-04-01
+
+### Changed
+
+- Bump add-on/runtime markers to `0.3.7` to force a fresh Home Assistant add-on image pull/rebuild.
+- Add deterministic runtime build fingerprint `build_id=qr-20260401-8dc7588` for stale-container detection.
+- Expose `build_id` and `query_resolution_rev` in `/healthz` and `/health` payloads for live-code verification.
+- Emit startup log fields `build_id` and `query_resolution_rev` so operator logs can confirm the exact query resolver build.
+
 ## [0.3.6] - 2026-04-01
 
 ### Fixed
