@@ -6,10 +6,10 @@ import os
 # Application metadata
 # ---------------------------------------------------------------------------
 APP_NAME = "EchoWeave"
-APP_VERSION = "0.3.8"
+APP_VERSION = "0.3.9"
 APP_DESCRIPTION = "Alexa bridge backend for Music Assistant"
-APP_BUILD_ID = os.getenv("ECHOWEAVE_BUILD_ID", "qr-20260401-cab5ea8")
-APP_QUERY_RESOLUTION_REV = "query-fallback-tracks-artists-albums-playlists-v2"
+APP_BUILD_ID = os.getenv("ECHOWEAVE_BUILD_ID", "qr-20260401-8f222fd")
+APP_QUERY_RESOLUTION_REV = "enqueue-diagnostics-v1"
 
 # ---------------------------------------------------------------------------
 # Route prefixes
