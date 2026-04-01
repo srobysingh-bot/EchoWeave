@@ -359,7 +359,7 @@ class MusicAssistantClient:
         search_order = ["tracks", "artists", "albums", "playlists"]
         for media_type in search_order:
             results = await self._search_media(normalized_query, media_type)
-            logger.info(
+            logger.warning(
                 json.dumps(
                     {
                         "event": "ma_query_search",
@@ -380,7 +380,7 @@ class MusicAssistantClient:
             if media_type == "artists":
                 artist_name = str(results[0].get("name") or normalized_query).strip()
                 top_tracks = await self._search_media(artist_name, "tracks")
-                logger.info(
+                logger.warning(
                     json.dumps(
                         {
                             "event": "ma_artist_top_tracks",
@@ -774,6 +774,7 @@ class MusicAssistantClient:
             "raw_query": query or "",
             "normalized_query": normalized_query,
         }
+        logger.warning(json.dumps({**log_ctx, "phase": "start"}))
 
         if normalized_query:
             playable = await self._resolve_query_play_request(

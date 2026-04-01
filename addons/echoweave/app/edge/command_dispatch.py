@@ -39,7 +39,7 @@ async def execute_edge_command(
         requested_queue_id = (prepare.queue_id or queue_id).strip() or None
         raw_query = (prepare.query or "").strip()
         normalized_query = _normalize_query(raw_query)
-        logger.info(
+        logger.warning(
             "prepare_play_start requested_queue_id=%s default_queue_id=%s intent_name=%s raw_query=%s normalized_query=%s",
             requested_queue_id,
             default_queue_id,

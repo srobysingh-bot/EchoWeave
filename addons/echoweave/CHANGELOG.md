@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.8] - 2026-04-01
+
+### Changed
+
+- Bump add-on/runtime markers to `0.3.8` to force another fresh Home Assistant add-on image pull/rebuild.
+- Update deterministic runtime build fingerprint to `build_id=qr-20260401-cab5ea8`.
+- Elevate key query diagnostics to warning level for live troubleshooting visibility: `prepare_play_start`, `ma_query_search`, `ma_artist_top_tracks`, and `ma_resolve_play_request` start phase.
+
 ## [0.3.7] - 2026-04-01
 
 ### Changed

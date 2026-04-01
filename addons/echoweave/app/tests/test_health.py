@@ -19,8 +19,8 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.3.7"
-    assert data["build_id"] == "qr-20260401-8dc7588"
+    assert data["version"] == "0.3.8"
+    assert data["build_id"] == "qr-20260401-cab5ea8"
     assert data["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
 
 
@@ -37,8 +37,8 @@ def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.3.7"
-    assert payload["build_id"] == "qr-20260401-8dc7588"
+    assert payload["version"] == "0.3.8"
+    assert payload["build_id"] == "qr-20260401-cab5ea8"
     assert payload["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
     assert isinstance(payload["checks"], list)
     assert payload["checks"][0]["key"] == "service"
