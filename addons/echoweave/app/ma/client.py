@@ -281,14 +281,40 @@ class MusicAssistantClient:
         return []
 
     async def _search_media(self, query: str, media_type: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        payload = {
-            "search": query,
-            "query": query,
-            "media_types": [media_type],
-            "limit": limit,
-        }
-        result = await self._post_command_with_fallback(["music/search"], **payload)
-        return self._extract_search_items(result, media_type)
+        commands = ["music/search", "music.search"]
+        payload_candidates: list[dict[str, Any]] = [
+            {
+                "search": query,
+                "media_types": [media_type],
+                "limit": limit,
+            },
+            {
+                "query": query,
+                "media_types": [media_type],
+                "limit": limit,
+            },
+            {
+                "search": query,
+                "media_type": media_type,
+                "limit": limit,
+            },
+            {
+                "query": query,
+                "media_type": media_type,
+                "limit": limit,
+            },
+        ]
+
+        for payload in payload_candidates:
+            try:
+                result = await self._post_command_with_fallback(commands, **payload)
+                items = self._extract_search_items(result, media_type)
+                if items:
+                    return items
+            except MusicAssistantError:
+                continue
+
+        return []
 
     async def _try_enqueue_search_result(
         self,
@@ -371,6 +397,14 @@ class MusicAssistantClient:
                         "normalized_query": normalized_query,
                         "media_type": media_type,
                         "results_count": len(results),
+                        "result_preview": [
+                            {
+                                "name": str(item.get("name") or ""),
+                                "uri": str(item.get("uri") or ""),
+                                "item_id": str(item.get("item_id") or item.get("id") or ""),
+                            }
+                            for item in results[:3]
+                        ],
                     }
                 )
             )
@@ -390,6 +424,14 @@ class MusicAssistantClient:
                             "intent_name": intent_name,
                             "artist": artist_name,
                             "results_count": len(top_tracks),
+                            "result_preview": [
+                                {
+                                    "name": str(item.get("name") or ""),
+                                    "uri": str(item.get("uri") or ""),
+                                    "item_id": str(item.get("item_id") or item.get("id") or ""),
+                                }
+                                for item in top_tracks[:3]
+                            ],
                         }
                     )
                 )
