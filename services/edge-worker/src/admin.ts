@@ -59,7 +59,7 @@ export async function handleAdminRequest(
   request: Request,
   env: Env,
   pathname: string,
-  requestId = crypto.randomUUID(),
+  requestId: string = crypto.randomUUID(),
 ): Promise<Response | null> {
   if (!pathname.startsWith("/v1/admin/")) return null;
 

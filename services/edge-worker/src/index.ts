@@ -73,13 +73,24 @@ export default {
     cleanupRateState();
     const requestId = request.headers.get("x-request-id")?.trim() || crypto.randomUUID();
     const clientId = getClientIdentifier(request);
+    const rawPathname = new URL(request.url).pathname;
 
     const logBase = {
       request_id: requestId,
       method: request.method,
-      path: new URL(request.url).pathname,
+      path: rawPathname,
       client_id: clientId,
     };
+
+    // Catch-all request log: every request that reaches the Worker is logged.
+    const headerNames: string[] = [];
+    request.headers.forEach((_, key) => headerNames.push(key));
+    console.info(JSON.stringify({ 
+      event: "worker_request_received", 
+      ...logBase, 
+      user_agent: request.headers.get("user-agent") ?? "",
+      header_names: headerNames
+    }));
 
     if (request.method === "OPTIONS") {
       const response = withCors(new Response(null, { status: 204 }));
@@ -88,7 +99,8 @@ export default {
     }
 
     const url = new URL(request.url);
-    const pathname = url.pathname;
+    // Normalize trailing slashes to prevent silent 404s
+    const pathname = rawPathname.length > 1 && rawPathname.endsWith("/") ? rawPathname.slice(0, -1) : rawPathname;
 
     try {
       if (pathname === "/healthz") {
@@ -113,6 +125,17 @@ export default {
       }
 
       if (pathname === "/v1/alexa") {
+        // GET /v1/alexa: human-readable endpoint check (paste URL in browser to verify)
+        if (request.method === "GET") {
+          const resp = withCors(new Response(
+            "EchoWeave Alexa webhook is active at this URL. Use POST to send Alexa requests.\n" +
+            `Request ID: ${requestId}\nTimestamp: ${new Date().toISOString()}\n`,
+            { status: 200, headers: { "content-type": "text/plain" } },
+          ));
+          resp.headers.set("x-request-id", requestId);
+          return resp;
+        }
+
         const limit = parseLimit(env.RATE_LIMIT_ALEXA_PER_MINUTE, 60);
         const limited = checkRateLimit("alexa", clientId, limit);
         if (limited.limited) {
@@ -122,7 +145,7 @@ export default {
           resp.headers.set("x-request-id", requestId);
           return resp;
         }
-        console.info(JSON.stringify({ event: "alexa_request_received", ...logBase }));
+        console.info(JSON.stringify({ event: "alexa_request_routed", ...logBase }));
         const resp = withCors(await handleAlexaWebhookWithContext(request, env, requestId));
         resp.headers.set("x-request-id", requestId);
         return resp;

@@ -24,7 +24,7 @@ def build_interaction_model(locale: str = "en-US") -> dict[str, Any]:
     return {
         "interactionModel": {
             "languageModel": {
-                "invocationName": "echo weave",
+                "invocationName": "weave bridge",
                 "intents": [
                     {
                         "name": "PlayIntent",
@@ -47,9 +47,9 @@ def build_interaction_model(locale: str = "en-US") -> dict[str, Any]:
                         ],
                         "samples": [
                             "play {query}",
+                            "play music by {query}",
                             "play songs by {query}",
-                            "play {query} songs",
-                            "{query}",
+                            "search for {query}",
                         ],
                     },
                     {"name": "AMAZON.PauseIntent", "samples": []},

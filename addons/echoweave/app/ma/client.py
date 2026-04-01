@@ -289,13 +289,21 @@ class MusicAssistantClient:
             return data
         raise MusicAssistantError("MA API error: unexpected players/all response shape")
 
-    async def get_queue_items(self, queue_id: str) -> list[MAQueueItem]:
+    async def get_queue_items(self, queue_id: str, *, request_id: str = "", home_id: str = "", player_id: str = "") -> list[MAQueueItem]:
         """Return items in the specified MA queue."""
         resp = await self._get_with_path_fallback(self._queue_paths(queue_id, "/items"))
         items = resp.json()
+        logger.info(json.dumps({
+            "event": "ma_get_queue_items",
+            "request_id": request_id,
+            "home_id": home_id,
+            "player_id": player_id,
+            "queue_id": queue_id,
+            "num_items": len(items),
+        }))
         return [MAQueueItem.model_validate(item) for item in items]
 
-    async def get_queue_item(self, queue_id: str, queue_item_id: str) -> Optional[MAQueueItem]:
+    async def get_queue_item(self, queue_id: str, queue_item_id: str, *, request_id: str = "", home_id: str = "", player_id: str = "") -> Optional[MAQueueItem]:
         """Return a specific queue item by id, or ``None`` if unavailable."""
         try:
             resp = await self._get_with_path_fallback(
@@ -303,13 +311,26 @@ class MusicAssistantClient:
             )
             data = resp.json()
             if isinstance(data, dict):
+                logger.info(json.dumps({
+                    "event": "ma_get_queue_item",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": player_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "found": True,
+                }))
                 return MAQueueItem.model_validate(data)
         except MusicAssistantError:
-            logger.warning(
-                "Queue item lookup failed queue_id=%s queue_item_id=%s",
-                queue_id,
-                queue_item_id,
-            )
+            logger.warning(json.dumps({
+                "event": "ma_get_queue_item_failed",
+                "request_id": request_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "found": False,
+            }))
         return None
 
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
@@ -444,20 +465,32 @@ class MusicAssistantClient:
             "content_type": "audio/mpeg",
         }
 
-    async def get_current_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
+    async def get_current_playable_item(self, queue_id: str | None = None, *, request_id: str = "", home_id: str = "", player_id: str = "") -> Optional[dict[str, Any]]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="get_current_playable_item.request")
         resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
+            logger.info(json.dumps({
+                "event": "ma_no_queue_id",
+                "request_id": request_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "requested_queue_id": queue_id,
+                "reason": "no_resolved_queue_id"
+            }))
             return None
 
         try:
             item = await self._select_queue_item(resolved_queue_id, prefer_current=True)
         except MusicAssistantError as exc:
             if requested_queue_id and self._is_queue_not_found(exc):
-                logger.warning(
-                    "get_current_playable_item requested queue_id=%s returned 404; discarding and re-resolving active queue",
-                    requested_queue_id,
-                )
+                logger.warning(json.dumps({
+                    "event": "ma_queue_404",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": player_id,
+                    "queue_id": requested_queue_id,
+                    "reason": "queue_404"
+                }))
                 resolved_queue_id = await self._resolve_default_queue_id()
                 if not resolved_queue_id:
                     return None
@@ -465,30 +498,60 @@ class MusicAssistantClient:
             else:
                 raise
         if not item:
+            logger.info(json.dumps({
+                "event": "ma_no_playable_item",
+                "request_id": request_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "queue_id": resolved_queue_id,
+                "reason": "no_current_playable_item"
+            }))
             return None
 
         stream_ctx = await self.build_stream_context(resolved_queue_id, item.queue_item_id)
         metadata = self.get_item_metadata(item)
+        logger.info(json.dumps({
+            "event": "ma_selected_current_playable_item",
+            "request_id": request_id,
+            "home_id": home_id,
+            "player_id": player_id,
+            "queue_id": resolved_queue_id,
+            "queue_item_id": item.queue_item_id,
+            "title": item.name,
+            "origin_stream_path": stream_ctx["origin_stream_path"]
+        }))
         return {
             **metadata,
             "origin_stream_path": stream_ctx["origin_stream_path"],
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 
-    async def get_next_playable_item(self, queue_id: str | None = None) -> Optional[dict[str, Any]]:
+    async def get_next_playable_item(self, queue_id: str | None = None, *, request_id: str = "", home_id: str = "", player_id: str = "") -> Optional[dict[str, Any]]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="get_next_playable_item.request")
         resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
+            logger.info(json.dumps({
+                "event": "ma_no_queue_id",
+                "request_id": request_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "requested_queue_id": queue_id,
+                "reason": "no_resolved_queue_id"
+            }))
             return None
 
         try:
             item = await self._select_queue_item(resolved_queue_id, prefer_current=False)
         except MusicAssistantError as exc:
             if requested_queue_id and self._is_queue_not_found(exc):
-                logger.warning(
-                    "get_next_playable_item requested queue_id=%s returned 404; discarding and re-resolving active queue",
-                    requested_queue_id,
-                )
+                logger.warning(json.dumps({
+                    "event": "ma_queue_404",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": player_id,
+                    "queue_id": requested_queue_id,
+                    "reason": "queue_404"
+                }))
                 resolved_queue_id = await self._resolve_default_queue_id()
                 if not resolved_queue_id:
                     return None
@@ -496,50 +559,78 @@ class MusicAssistantClient:
             else:
                 raise
         if not item:
+            logger.info(json.dumps({
+                "event": "ma_no_playable_item",
+                "request_id": request_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "queue_id": resolved_queue_id,
+                "reason": "no_next_playable_item"
+            }))
             return None
 
         stream_ctx = await self.build_stream_context(resolved_queue_id, item.queue_item_id)
         metadata = self.get_item_metadata(item)
+        logger.info(json.dumps({
+            "event": "ma_selected_next_playable_item",
+            "request_id": request_id,
+            "home_id": home_id,
+            "player_id": player_id,
+            "queue_id": resolved_queue_id,
+            "queue_item_id": item.queue_item_id,
+            "title": item.name,
+            "origin_stream_path": stream_ctx["origin_stream_path"]
+        }))
         return {
             **metadata,
             "origin_stream_path": stream_ctx["origin_stream_path"],
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 
-    async def resolve_play_request(self, queue_id: str | None = None) -> dict[str, Any]:
+    async def resolve_play_request(self, queue_id: str | None = None, *, request_id: str = "", home_id: str = "", player_id: str = "") -> dict[str, Any]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="resolve_play_request.request")
+        log_ctx = {
+            "event": "ma_resolve_play_request",
+            "request_id": request_id,
+            "home_id": home_id,
+            "player_id": player_id,
+            "requested_queue_id": queue_id,
+        }
 
         playable: dict[str, Any] | None = None
         if requested_queue_id:
             try:
-                playable = await self.get_current_playable_item(requested_queue_id)
+                playable = await self.get_current_playable_item(requested_queue_id, request_id=request_id, home_id=home_id, player_id=player_id)
             except MusicAssistantError as exc:
                 if self._is_queue_not_found(exc):
-                    logger.warning(
-                        "Requested queue_id=%s returned 404; discarding and re-resolving active queue",
-                        requested_queue_id,
-                    )
+                    logger.warning(json.dumps({**log_ctx, "reason": "queue_not_found"}))
                     requested_queue_id = None
                 else:
+                    logger.warning(json.dumps({**log_ctx, "reason": "exception", "details": str(exc)}))
                     raise
 
         if playable:
+            logger.info(json.dumps({**log_ctx, "result": "current_playable", "queue_id": playable.get("queue_id"), "queue_item_id": playable.get("queue_item_id") }))
             return playable
 
         if requested_queue_id:
-            playable = await self.get_next_playable_item(requested_queue_id)
+            playable = await self.get_next_playable_item(requested_queue_id, request_id=request_id, home_id=home_id, player_id=player_id)
             if playable:
+                logger.info(json.dumps({**log_ctx, "result": "next_playable", "queue_id": playable.get("queue_id"), "queue_item_id": playable.get("queue_item_id") }))
                 return playable
 
-        playable = await self.get_current_playable_item(None)
+        playable = await self.get_current_playable_item(None, request_id=request_id, home_id=home_id, player_id=player_id)
         if playable:
+            logger.info(json.dumps({**log_ctx, "result": "fallback_current_playable", "queue_id": playable.get("queue_id"), "queue_item_id": playable.get("queue_item_id") }))
             return playable
 
-        playable = await self.get_next_playable_item(None)
+        playable = await self.get_next_playable_item(None, request_id=request_id, home_id=home_id, player_id=player_id)
         if playable:
+            logger.info(json.dumps({**log_ctx, "result": "fallback_next_playable", "queue_id": playable.get("queue_id"), "queue_item_id": playable.get("queue_item_id") }))
             return playable
 
-        raise MusicAssistantError("No playable queue item available.")
+        logger.warning(json.dumps({**log_ctx, "result": "no_playable_item", "reason": "queue_empty"}))
+        raise MusicAssistantError(json.dumps({"code": "queue_empty", "message": "No playable queue item available."}))
 
     async def get_stream_url(self, queue_id: str, item_id: str) -> str | None:
         """Resolve a playable stream URL from MA for the given queue item.

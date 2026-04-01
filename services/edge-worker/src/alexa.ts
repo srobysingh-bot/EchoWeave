@@ -24,7 +24,11 @@ function extractAlexaUserId(envelope: AlexaRequestEnvelope): string {
 function validateEnvelope(envelope: AlexaRequestEnvelope): string | null {
   if (!envelope || typeof envelope !== "object") return "invalid-json";
   if (!envelope.version || !envelope.request?.type) return "invalid-envelope";
-  if (!envelope.request.timestamp || !validateAlexaTimestamp(envelope.request.timestamp)) {
+  const reqTs = envelope.request.timestamp;
+  if (!reqTs) return "stale-or-missing-timestamp";
+  const tsValid = validateAlexaTimestamp(reqTs);
+  console.info(JSON.stringify({ event: "alexa_timestamp_validation", timestamp: reqTs, is_valid: tsValid }));
+  if (!tsValid) {
     return "stale-or-missing-timestamp";
   }
   return null;
@@ -32,10 +36,19 @@ function validateEnvelope(envelope: AlexaRequestEnvelope): string | null {
 
 async function validateAlexaSignature(request: Request, env: Env): Promise<boolean> {
   const enforce = (env.ALEXA_SIGNATURE_ENFORCE ?? "true").toLowerCase() === "true";
-  if (!enforce) return true;
-
+  
   const certChainUrl = request.headers.get("SignatureCertChainUrl") ?? "";
   const signature = request.headers.get("Signature") ?? "";
+  
+  console.info(JSON.stringify({ 
+    event: "alexa_signature_headers_check", 
+    has_cert_chain_url: !!certChainUrl, 
+    has_signature: !!signature,
+    enforce_mode: enforce
+  }));
+
+  if (!enforce) return true;
+
   if (!certChainUrl || !signature) {
     console.warn(JSON.stringify({ event: "alexa_signature_rejected", reason: "missing_signature_headers" }));
     return false;
@@ -43,6 +56,13 @@ async function validateAlexaSignature(request: Request, env: Env): Promise<boole
 
   const rawBody = await request.clone().arrayBuffer();
   const verified = await verifyAlexaRequestSignature(certChainUrl, signature, rawBody);
+  
+  console.info(JSON.stringify({ 
+    event: "alexa_signature_crypto_result", 
+    ok: verified.ok, 
+    reason: verified.reason 
+  }));
+
   if (!verified.ok) {
     console.warn(JSON.stringify({ event: "alexa_signature_rejected", reason: verified.reason ?? "unknown" }));
     return false;
@@ -89,42 +109,94 @@ export async function handleAlexaWebhook(request: Request, env: Env): Promise<Re
 }
 
 export async function handleAlexaWebhookWithContext(request: Request, env: Env, requestId: string): Promise<Response> {
-  if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
+  // Log 1: Handler entry — proves request entered the Alexa handler
+  console.info(JSON.stringify({ event: "alexa_handler_entry", request_id: requestId, method: request.method }));
 
-  if (!(await validateAlexaSignature(request, env))) {
-    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: "signature_validation_failed" }));
-    return json(buildAlexaSpeechResponse("Request signature validation failed."), 401);
+  if (request.method !== "POST") {
+    console.warn(JSON.stringify({ event: "alexa_handler_rejected", request_id: requestId, reason: "method-not-allowed", method: request.method }));
+    return json({ error: "method-not-allowed" }, 405);
   }
 
-  const envelope = (await request.clone().json()) as AlexaRequestEnvelope;
+  // Log 2: Signature verification
+  const sigValid = await validateAlexaSignature(request, env);
+  console.info(JSON.stringify({ event: "alexa_signature_result", request_id: requestId, passed: sigValid }));
+
+  if (!sigValid) {
+    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: "signature_validation_failed" }));
+    return json(buildAlexaSpeechResponse("Request signature validation failed."), 200);
+  }
+
+  // Log 3: Envelope parsing
+  let envelope: AlexaRequestEnvelope;
+  try {
+    envelope = (await request.clone().json()) as AlexaRequestEnvelope;
+  } catch {
+    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: "invalid-json" }));
+    return json(buildAlexaSpeechResponse("I could not process that request."), 200);
+  }
+
   const invalidReason = validateEnvelope(envelope);
   if (invalidReason) {
     console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: invalidReason }));
-    return json({ error: invalidReason }, 400);
+    return json(buildAlexaSpeechResponse("I could not process that request."), 200);
   }
 
   const requestType = envelope.request?.type ?? "";
+  const intentName = envelope.request?.intent?.name ?? "";
+
+  // Log 4: Request type and intent
+  console.info(JSON.stringify({ event: "alexa_envelope_parsed", request_id: requestId, request_type: requestType, intent_name: intentName || undefined }));
+
   if (requestType === "LaunchRequest") {
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start." }));
     return json(buildAlexaSpeechResponse("Welcome to EchoWeave. Say play to start."));
   }
 
   if (requestType !== "IntentRequest") {
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: requestType, response_status: 200, speech: "empty-response" }));
     return json({ version: "1.0", response: {} });
   }
 
-  const intentName = envelope.request?.intent?.name ?? "";
   if (!["PlayIntent", "PlayAudio", "AMAZON.ResumeIntent"].includes(intentName)) {
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "IntentRequest", intent_name: intentName, response_status: 200, speech: "That command is not available yet." }));
     return json(buildAlexaSpeechResponse("That command is not available yet."));
   }
 
+  // Log 5: Alexa user ID extraction
   const alexaUserId = extractAlexaUserId(envelope);
-  if (!alexaUserId) return json({ error: "missing-user-id" }, 400);
+  const truncatedUserId = alexaUserId ? `${alexaUserId.slice(0, 20)}...${alexaUserId.slice(-6)}` : "";
+  console.info(JSON.stringify({ event: "alexa_user_resolved", request_id: requestId, alexa_user_id_present: !!alexaUserId, alexa_user_id_truncated: truncatedUserId }));
 
-  const home = await resolveHomeByAlexaUser(env.ECHOWEAVE_DB, alexaUserId);
-  if (!home) {
-    console.warn(JSON.stringify({ event: "home_resolution_failed", request_id: requestId, alexa_user_id_present: true }));
-    return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 404);
+  if (!alexaUserId) {
+    console.warn(JSON.stringify({ event: "alexa_request_rejected", request_id: requestId, reason: "missing-user-id" }));
+    return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 200);
   }
+
+  // Log 6: Home lookup
+  const home = await resolveHomeByAlexaUser(env.ECHOWEAVE_DB, alexaUserId);
+  console.info(JSON.stringify({
+    event: "alexa_home_lookup",
+    request_id: requestId,
+    found: !!home,
+    tenant_id: home?.tenant_id ?? "",
+    home_id: home?.home_id ?? "",
+  }));
+
+  if (!home) {
+    console.warn(JSON.stringify({ event: "alexa_home_resolution_failed", request_id: requestId, alexa_user_id_truncated: truncatedUserId }));
+    return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 200);
+  }
+
+  // Log 7: DO command dispatch
+  console.info(JSON.stringify({
+    event: "alexa_do_dispatch",
+    request_id: requestId,
+    tenant_id: home.tenant_id,
+    home_id: home.home_id,
+    command_type: "prepare_play",
+    intent_name: intentName,
+    queue_id: home.alexa_source_queue_id ?? "",
+  }));
 
   const doId = env.HOME_SESSION.idFromName(`${home.tenant_id}:${home.home_id}`);
   const sessionStub = env.HOME_SESSION.get(doId);
@@ -140,6 +212,9 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       timeout_ms: 8000,
     }),
   });
+
+  // Log 8: DO response
+  console.info(JSON.stringify({ event: "alexa_do_result", request_id: requestId, do_status: doResp.status, do_ok: doResp.ok }));
 
   if (!doResp.ok) {
     let doErrorText = "";
@@ -173,13 +248,15 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         }),
       );
     }
-    // Return 200 with a valid Alexa speech envelope for recoverable runtime failures.
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Your home connector is offline. Please try again." }));
     return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 200);
   }
 
   const prepared = (await doResp.json()) as PreparedPlayContext;
   if (!prepared.queue_id || !prepared.queue_item_id || !prepared.origin_stream_path) {
-    return json(buildAlexaSpeechResponse("Could not resolve a playable item."), 502);
+    console.warn(JSON.stringify({ event: "alexa_prepared_play_incomplete", request_id: requestId, has_queue_id: !!prepared.queue_id, has_queue_item_id: !!prepared.queue_item_id, has_origin_stream_path: !!prepared.origin_stream_path }));
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Could not resolve a playable item." }));
+    return json(buildAlexaSpeechResponse("Could not resolve a playable item."), 200);
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -224,5 +301,18 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   });
 
   const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
+
+  // Log 9: Final success response
+  console.info(JSON.stringify({
+    event: "alexa_response_sent",
+    request_id: requestId,
+    response_status: 200,
+    response_type: "AudioPlayer.Play",
+    title: prepared.title,
+    playback_session_id: playbackSessionId,
+    stream_token_id: tokenId,
+  }));
+
   return json(buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, `Playing ${prepared.title}`));
 }
+
