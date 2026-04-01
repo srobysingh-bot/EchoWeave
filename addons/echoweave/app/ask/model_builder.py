@@ -37,6 +37,21 @@ def build_interaction_model(locale: str = "en-US") -> dict[str, Any]:
                             "start music",
                         ],
                     },
+                    {
+                        "name": "PlayAudio",
+                        "slots": [
+                            {
+                                "name": "query",
+                                "type": "AMAZON.SearchQuery",
+                            }
+                        ],
+                        "samples": [
+                            "play {query}",
+                            "play songs by {query}",
+                            "play {query} songs",
+                            "{query}",
+                        ],
+                    },
                     {"name": "AMAZON.PauseIntent", "samples": []},
                     {"name": "AMAZON.ResumeIntent", "samples": []},
                     {"name": "AMAZON.NextIntent", "samples": []},

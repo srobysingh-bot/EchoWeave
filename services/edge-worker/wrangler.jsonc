@@ -29,5 +29,8 @@
   "vars": {
     "ALEXA_SIGNATURE_ENFORCE": "true",
     "STREAM_TOKEN_TTL_SECONDS": "300"
+  },
+  "observability": {
+    "enabled": true
   }
 }
