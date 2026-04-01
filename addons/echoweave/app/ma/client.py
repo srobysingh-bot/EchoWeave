@@ -329,7 +329,37 @@ class MusicAssistantClient:
         uri = str(item.get("uri") or "").strip()
         item_id = str(item.get("item_id") or item.get("id") or "").strip()
         if not uri and not item_id:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_enqueue_skip",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": player_id,
+                        "reason": "no_uri_or_item_id",
+                        "item_name": str(item.get("name") or ""),
+                    }
+                )
+            )
             return None
+
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "ma_resolved_media_object",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": player_id,
+                    "media_type": media_type,
+                    "queue_id": queue_id,
+                    "item": {
+                        "name": str(item.get("name") or ""),
+                        "uri": uri,
+                        "item_id": item_id,
+                    },
+                }
+            )
+        )
 
         payload_candidates: list[dict[str, Any]] = []
         if queue_id:
@@ -342,11 +372,35 @@ class MusicAssistantClient:
         if item_id:
             payload_candidates.append({"media_type": media_type, "item_id": item_id})
 
-        for payload in payload_candidates:
+        for attempt, payload in enumerate(payload_candidates, 1):
             try:
-                await self._post_command_with_fallback(
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_playback_enqueue_attempt",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": player_id,
+                            "attempt": attempt,
+                            "payload": payload,
+                        }
+                    )
+                )
+                response = await self._post_command_with_fallback(
                     ["player_queues/play_media", "playerqueues/play_media"],
                     **payload,
+                )
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_playback_enqueue_response",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": player_id,
+                            "attempt": attempt,
+                            "response": response,
+                        }
+                    )
                 )
                 playable = await self.get_current_playable_item(
                     queue_id,
@@ -355,6 +409,19 @@ class MusicAssistantClient:
                     player_id=player_id,
                 )
                 if playable:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_enqueue_success_current",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": player_id,
+                                "queue_id": playable.get("queue_id"),
+                                "queue_item_id": playable.get("queue_item_id"),
+                                "item_name": str(playable.get("media_details", {}).get("title") or ""),
+                            }
+                        )
+                    )
                     return playable
                 playable = await self.get_next_playable_item(
                     queue_id,
@@ -363,9 +430,47 @@ class MusicAssistantClient:
                     player_id=player_id,
                 )
                 if playable:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_enqueue_success_next",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": player_id,
+                                "queue_id": playable.get("queue_id"),
+                                "queue_item_id": playable.get("queue_item_id"),
+                                "item_name": str(playable.get("media_details", {}).get("title") or ""),
+                            }
+                        )
+                    )
                     return playable
-            except MusicAssistantError:
+            except MusicAssistantError as exc:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_enqueue_attempt_failed",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": player_id,
+                            "attempt": attempt,
+                            "error": str(exc),
+                        }
+                    )
+                )
                 continue
+        
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "ma_enqueue_all_attempts_failed",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": player_id,
+                    "attempts": len(payload_candidates),
+                    "item_name": str(item.get("name") or ""),
+                }
+            )
+        )
         return None
 
     async def _resolve_query_play_request(
@@ -436,6 +541,22 @@ class MusicAssistantClient:
                     )
                 )
                 if top_tracks:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_artist_enqueue_selected_track",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": player_id,
+                                "artist": artist_name,
+                                "selected_track": {
+                                    "name": str(top_tracks[0].get("name") or ""),
+                                    "uri": str(top_tracks[0].get("uri") or ""),
+                                    "item_id": str(top_tracks[0].get("item_id") or top_tracks[0].get("id") or ""),
+                                },
+                            }
+                        )
+                    )
                     playable = await self._try_enqueue_search_result(
                         top_tracks[0],
                         media_type="tracks",
@@ -448,6 +569,22 @@ class MusicAssistantClient:
                         return playable
                 continue
 
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_direct_enqueue_selected_item",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": player_id,
+                        "media_type": media_type,
+                        "selected_item": {
+                            "name": str(results[0].get("name") or ""),
+                            "uri": str(results[0].get("uri") or ""),
+                            "item_id": str(results[0].get("item_id") or results[0].get("id") or ""),
+                        },
+                    }
+                )
+            )
             playable = await self._try_enqueue_search_result(
                 results[0],
                 media_type=media_type,
@@ -828,13 +965,18 @@ class MusicAssistantClient:
                 player_id=player_id,
             )
             if playable:
-                logger.info(
+                logger.warning(
                     json.dumps(
                         {
                             **log_ctx,
-                            "result": "query_playable",
+                            "phase": "query_resolved_to_playable",
                             "queue_id": playable.get("queue_id"),
                             "queue_item_id": playable.get("queue_item_id"),
+                            "item": {
+                                "title": str(playable.get("media_details", {}).get("title") or ""),
+                                "artist": str(playable.get("media_details", {}).get("artist") or ""),
+                                "uri": str(playable.get("media_details", {}).get("uri") or playable.get("uri") or ""),
+                            },
                         }
                     )
                 )
