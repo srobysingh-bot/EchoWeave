@@ -34,16 +34,48 @@ function extractIntentQuery(envelope: AlexaRequestEnvelope): string {
   const slots = envelope.request?.intent?.slots;
   if (!slots || typeof slots !== "object") return "";
 
+  const readSlotValue = (slot: unknown): string => {
+    if (!slot || typeof slot !== "object") return "";
+    const record = slot as Record<string, unknown>;
+
+    const direct = record.value;
+    if (typeof direct === "string" && direct.trim()) return direct;
+
+    const slotValue = record.slotValue;
+    if (slotValue && typeof slotValue === "object") {
+      const nested = (slotValue as Record<string, unknown>).value;
+      if (typeof nested === "string" && nested.trim()) return nested;
+    }
+
+    const resolutions = record.resolutions;
+    if (resolutions && typeof resolutions === "object") {
+      const perAuthority = (resolutions as Record<string, unknown>).resolutionsPerAuthority;
+      if (Array.isArray(perAuthority)) {
+        for (const authority of perAuthority) {
+          if (!authority || typeof authority !== "object") continue;
+          const values = (authority as Record<string, unknown>).values;
+          if (!Array.isArray(values)) continue;
+          for (const item of values) {
+            if (!item || typeof item !== "object") continue;
+            const valueObj = (item as Record<string, unknown>).value;
+            if (!valueObj || typeof valueObj !== "object") continue;
+            const name = (valueObj as Record<string, unknown>).name;
+            if (typeof name === "string" && name.trim()) return name;
+          }
+        }
+      }
+    }
+
+    return "";
+  };
+
   const named = (slots as Record<string, unknown>).query;
-  if (named && typeof named === "object") {
-    const value = (named as { value?: unknown }).value;
-    if (typeof value === "string") return value;
-  }
+  const namedValue = readSlotValue(named);
+  if (namedValue) return namedValue;
 
   for (const slot of Object.values(slots)) {
-    if (!slot || typeof slot !== "object") continue;
-    const value = (slot as { value?: unknown }).value;
-    if (typeof value === "string" && value.trim()) return value;
+    const value = readSlotValue(slot);
+    if (value) return value;
   }
   return "";
 }
@@ -179,11 +211,29 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     JSON.stringify({
       event: "alexa_intent_query",
       request_id: requestId,
+      request_type: requestType,
       intent_name: intentName || undefined,
       raw_query: rawQuery,
       normalized_query: normalizedQuery,
     }),
   );
+  if (
+    requestType === "IntentRequest" &&
+    ["PlayIntent", "PlayAudio"].includes(intentName) &&
+    !rawQuery
+  ) {
+    const slots = envelope.request?.intent?.slots;
+    const slotKeys = slots && typeof slots === "object" ? Object.keys(slots as Record<string, unknown>) : [];
+    console.warn(
+      JSON.stringify({
+        event: "alexa_intent_slots_debug",
+        request_id: requestId,
+        intent_name: intentName,
+        slot_keys: slotKeys,
+        slots: slots ?? {},
+      }),
+    );
+  }
 
   if (requestType === "LaunchRequest") {
     console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start." }));
