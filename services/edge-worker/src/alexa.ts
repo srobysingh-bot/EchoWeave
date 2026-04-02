@@ -418,6 +418,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     title: prepared.title,
     playback_session_id: playbackSessionId,
     stream_token_id: tokenId,
+    stream_url: streamUrl,
+    origin_stream_path: prepared.origin_stream_path,
   }));
 
   return json(buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now."));

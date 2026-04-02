@@ -29,6 +29,7 @@ export async function handleStreamRequestWithContext(
   token: string,
   requestId: string,
 ): Promise<Response> {
+  const startedAt = Date.now();
   const claims = await verifySignedStreamToken(token, env.STREAM_TOKEN_SIGNING_SECRET);
   if (!claims) {
     console.warn(JSON.stringify({ event: "stream_proxy_failed", request_id: requestId, reason: "invalid_or_expired_token" }));
@@ -47,11 +48,20 @@ export async function handleStreamRequestWithContext(
 
   const path = claims.origin_stream_path.startsWith("/") ? claims.origin_stream_path : `/${claims.origin_stream_path}`;
   const originUrl = `${home.origin_base_url}${path}`;
-  console.info(JSON.stringify({ event: "stream_proxy_started", request_id: requestId, tenant_id: claims.tenant_id, home_id: claims.home_id, path }));
+  console.info(JSON.stringify({
+    event: "stream_proxy_started",
+    request_id: requestId,
+    tenant_id: claims.tenant_id,
+    home_id: claims.home_id,
+    path,
+    origin_url: originUrl,
+    has_range: !!request.headers.get("range"),
+  }));
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signaturePayload = `${timestamp}:GET:${path}`;
   const signature = await signPayload(signaturePayload, env.EDGE_ORIGIN_SHARED_SECRET);
 
+  const upstreamStart = Date.now();
   const upstream = await fetch(originUrl, {
     method: "GET",
     headers: {
@@ -60,6 +70,7 @@ export async function handleStreamRequestWithContext(
       ...(request.headers.get("range") ? { range: request.headers.get("range") as string } : {}),
     },
   });
+  const firstByteMs = Date.now() - upstreamStart;
 
   if (!upstream.ok && upstream.status !== 206) {
     console.warn(
@@ -68,10 +79,29 @@ export async function handleStreamRequestWithContext(
         request_id: requestId,
         reason: "origin_stream_error",
         origin_status: upstream.status,
+        origin_url: originUrl,
+        first_byte_ms: firstByteMs,
       }),
     );
     return new Response(`origin stream error (${upstream.status})`, { status: 502 });
   }
+
+  console.info(
+    JSON.stringify({
+      event: "stream_proxy_response",
+      request_id: requestId,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      status: upstream.status,
+      first_byte_ms: firstByteMs,
+      total_ms: Date.now() - startedAt,
+      content_type: upstream.headers.get("content-type") ?? "",
+      accept_ranges: upstream.headers.get("accept-ranges") ?? "",
+      content_length: upstream.headers.get("content-length") ?? "",
+      content_range: upstream.headers.get("content-range") ?? "",
+      transfer_encoding: upstream.headers.get("transfer-encoding") ?? "",
+    }),
+  );
 
   return new Response(upstream.body, {
     status: upstream.status,

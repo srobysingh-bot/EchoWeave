@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
 import time
 from typing import Optional
@@ -44,6 +44,7 @@ router = APIRouter(prefix="/edge", tags=["edge"])
 @router.get("/stream/{queue_id}/{queue_item_id}")
 async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     overall_start = time.perf_counter()
+    request_id = request.headers.get("x-request-id", "")
     
     config_svc = registry.get_optional("config_service")
     ma_client = registry.get_optional("ma_client")
@@ -67,6 +68,14 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     ):
         raise HTTPException(status_code=401, detail="Invalid edge signature")
 
+    logger.info(json.dumps({
+        "event": "edge_stream_request_start",
+        "request_id": request_id,
+        "queue_id": queue_id,
+        "queue_item_id": queue_item_id,
+        "has_range": bool(request.headers.get("range")),
+    }))
+
     # Try to get source URL from cache first
     origin_source_url = get_cached_stream_url(queue_id, queue_item_id)
     resolve_start = time.perf_counter()
@@ -74,7 +83,13 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     
     if not origin_source_url:
         # Fallback: resolve from MA (only if not cached)
-        logger.warning(f"Stream endpoint: cache miss for {queue_id}/{queue_item_id}, resolving from MA")
+        logger.warning(json.dumps({
+            "event": "edge_stream_lookup_start",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "cache_hit": False,
+        }))
         try:
             stream_ctx = await ma_client.build_stream_context(queue_id=queue_id, queue_item_id=queue_item_id)
             origin_source_url = stream_ctx.get("source_url")
@@ -83,12 +98,32 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             if origin_source_url:
                 # Cache for future requests
                 cache_stream_url(queue_id, queue_item_id, origin_source_url)
-                logger.info(f"Stream resolution took {resolve_elapsed*1000:.1f}ms for item {queue_item_id}")
+                logger.info(json.dumps({
+                    "event": "edge_stream_lookup_done",
+                    "request_id": request_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "cache_hit": False,
+                    "lookup_ms": round(resolve_elapsed * 1000, 1),
+                }))
         except Exception as e:
-            logger.error(f"Stream resolution failed: {e}")
+            logger.error(json.dumps({
+                "event": "edge_stream_lookup_failed",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "error": str(e),
+            }))
             raise HTTPException(status_code=502, detail="Stream resolution failed")
     else:
-        logger.info(f"Stream endpoint: using cached source_url for {queue_id}/{queue_item_id} (cache hit)")
+        logger.info(json.dumps({
+            "event": "edge_stream_lookup_done",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "cache_hit": True,
+            "lookup_ms": 0.0,
+        }))
     
     if not origin_source_url:
         raise HTTPException(status_code=404, detail="Stream source unavailable")
@@ -106,13 +141,31 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     upstream = await client.send(upstream_request, stream=True)
     first_byte_elapsed = (time.perf_counter() - fetch_start) * 1000
 
+    logger.info(json.dumps({
+        "event": "edge_stream_upstream_first_byte",
+        "request_id": request_id,
+        "queue_id": queue_id,
+        "queue_item_id": queue_item_id,
+        "first_byte_ms": round(first_byte_elapsed, 1),
+        "upstream_status": upstream.status_code,
+    }))
+
     if upstream.status_code not in (200, 206):
         await upstream.aclose()
         await client.aclose()
-        logger.error(f"Stream fetch failed: status={upstream.status_code} from {origin_source_url}, first-byte-ms={first_byte_elapsed:.1f}")
+        logger.error(json.dumps({
+            "event": "edge_stream_response",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "status": 502,
+            "origin_status": upstream.status_code,
+            "first_byte_ms": round(first_byte_elapsed, 1),
+            "content_type": upstream.headers.get("content-type", ""),
+            "accept_ranges": upstream.headers.get("accept-ranges", ""),
+            "content_length": upstream.headers.get("content-length", ""),
+        }))
         raise HTTPException(status_code=502, detail=f"Origin stream failed: {upstream.status_code}")
-
-    logger.info(f"Stream response: content-type={upstream.headers.get('content-type', 'unknown')}, accept-ranges={upstream.headers.get('accept-ranges', 'unknown')}, content-length={upstream.headers.get('content-length', 'unknown')}, status={upstream.status_code}, first-byte-ms={first_byte_elapsed:.1f}")
 
     async def stream_iter():
         try:
@@ -132,7 +185,21 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         response_headers["Content-Length"] = upstream.headers["content-length"]
 
     overall_elapsed = (time.perf_counter() - overall_start) * 1000
-    logger.info(f"Stream setup: total={overall_elapsed:.1f}ms, auth+lookup={resolve_elapsed*1000:.1f}ms, first-byte={first_byte_elapsed:.1f}ms, item={queue_item_id}")
+    logger.info(json.dumps({
+        "event": "edge_stream_response",
+        "request_id": request_id,
+        "queue_id": queue_id,
+        "queue_item_id": queue_item_id,
+        "status": upstream.status_code,
+        "first_byte_ms": round(first_byte_elapsed, 1),
+        "lookup_ms": round(resolve_elapsed * 1000, 1),
+        "total_ms": round(overall_elapsed, 1),
+        "content_type": upstream.headers.get("content-type", ""),
+        "accept_ranges": upstream.headers.get("accept-ranges", ""),
+        "content_length": upstream.headers.get("content-length", ""),
+        "content_range": upstream.headers.get("content-range", ""),
+        "transfer_encoding": upstream.headers.get("transfer-encoding", ""),
+    }))
 
     return StreamingResponse(
         stream_iter(),
