@@ -136,6 +136,7 @@ class ConfigService:
             worker_base_url=getattr(self._settings, "worker_base_url", "") or "",
             tunnel_base_url=getattr(self._settings, "tunnel_base_url", "") or "",
             edge_shared_secret=getattr(self._settings, "edge_shared_secret", "") or "",
+            connector_bootstrap_secret=getattr(self._settings, "connector_bootstrap_secret", "") or "",
             connector_id=getattr(self._settings, "connector_id", "") or "",
             connector_secret=getattr(self._settings, "connector_secret", "") or "",
             tenant_id=getattr(self._settings, "tenant_id", "") or "",
@@ -214,6 +215,11 @@ class ConfigService:
             bool(getattr(self._settings, "allow_insecure_local_test", False)),
             self._field_sources.get("allow_insecure_local_test", "default"),
         )
+        logger.info(
+            "Effective runtime config: connector_bootstrap_secret_set=%s source=%s",
+            bool(getattr(self._settings, "connector_bootstrap_secret", "")),
+            self._field_sources.get("connector_bootstrap_secret", "default"),
+        )
 
     def save_persisted(self, config: PersistedConfig) -> PersistedConfig:
         """Persist and apply a complete config object."""
@@ -235,6 +241,7 @@ class ConfigService:
                 "worker_base_url",
                 "tunnel_base_url",
                 "edge_shared_secret",
+                "connector_bootstrap_secret",
                 "connector_id",
                 "connector_secret",
                 "tenant_id",

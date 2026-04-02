@@ -215,7 +215,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 },
             }
             register_headers = {"content-type": "application/json"}
-            bootstrap_secret = settings.connector_bootstrap_secret or os.getenv("ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET", "")
+            settings_bootstrap_secret = settings.connector_bootstrap_secret or ""
+            env_bootstrap_secret = os.getenv("ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET", "")
+            bootstrap_secret = settings_bootstrap_secret or env_bootstrap_secret
+            bootstrap_source = "settings" if settings_bootstrap_secret else ("environment" if env_bootstrap_secret else "none")
+            logger.info(
+                "Edge connector registration auth: bootstrap_secret_set=%s source=%s",
+                bool(bootstrap_secret),
+                bootstrap_source,
+            )
             if bootstrap_secret:
                 register_headers["x-connector-bootstrap-secret"] = bootstrap_secret
             try:
@@ -231,6 +239,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         resp.status_code,
                         resp.text,
                     )
+                    if resp.status_code == 401:
+                        logger.warning(
+                            "Edge connector registration unauthorized. Check connector_bootstrap_secret in add-on options against worker CONNECTOR_BOOTSTRAP_SECRET."
+                        )
+                else:
+                    logger.info("Edge connector registration succeeded.")
             except Exception:
                 logger.exception("Edge connector registration request failed.")
 

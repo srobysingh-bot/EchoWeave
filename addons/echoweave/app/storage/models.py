@@ -64,6 +64,7 @@ class PersistedConfig(BaseModel):
     worker_base_url: str = ""
     tunnel_base_url: str = ""
     edge_shared_secret: str = ""
+    connector_bootstrap_secret: str = ""
     connector_id: str = ""
     connector_secret: str = ""
     tenant_id: str = ""
