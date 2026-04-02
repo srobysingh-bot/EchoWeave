@@ -32,6 +32,7 @@ TRACKED_CONFIG_FIELDS: tuple[str, ...] = (
     "worker_base_url",
     "tunnel_base_url",
     "edge_shared_secret",
+    "connector_bootstrap_secret",
     "connector_id",
     "connector_secret",
     "tenant_id",
@@ -80,6 +81,7 @@ class Settings(BaseSettings):
     worker_base_url: str = ""
     tunnel_base_url: str = ""
     edge_shared_secret: str = ""
+    connector_bootstrap_secret: str = ""
     connector_id: str = ""
     connector_secret: str = ""
     tenant_id: str = ""
@@ -146,6 +148,7 @@ class Settings(BaseSettings):
     @field_validator(
         "connector_id",
         "connector_secret",
+        "connector_bootstrap_secret",
         "tenant_id",
         "home_id",
         "edge_shared_secret",
@@ -262,6 +265,7 @@ class Settings(BaseSettings):
             "worker_base_url": self.worker_base_url,
             "tunnel_base_url": self.tunnel_base_url,
             "edge_shared_secret": self.edge_shared_secret,
+            "connector_bootstrap_secret": self.connector_bootstrap_secret,
             "connector_id": self.connector_id,
             "connector_secret": self.connector_secret,
             "tenant_id": self.tenant_id,
@@ -272,7 +276,7 @@ class Settings(BaseSettings):
     @property
     def connector_settings_redacted(self) -> dict[str, str]:
         values = self.connector_settings.copy()
-        for key in ("connector_secret", "edge_shared_secret"):
+        for key in ("connector_secret", "edge_shared_secret", "connector_bootstrap_secret"):
             if values.get(key):
                 values[key] = "****"
         return values

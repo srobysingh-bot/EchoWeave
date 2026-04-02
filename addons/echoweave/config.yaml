@@ -2,7 +2,7 @@ name: EchoWeave
 slug: echoweave
 description: Alexa bridge backend for Music Assistant
 url: "https://github.com/srobysingh-bot/EchoWeave"
-version: "0.3.12"
+version: "0.3.13"
 auto_update: true
 startup: services
 init: false
@@ -33,6 +33,7 @@ options:
   worker_base_url: ""
   tunnel_base_url: ""
   edge_shared_secret: ""
+  connector_bootstrap_secret: ""
   connector_id: ""
   connector_secret: ""
   tenant_id: ""
@@ -56,6 +57,7 @@ schema:
   worker_base_url: str?
   tunnel_base_url: str?
   edge_shared_secret: password?
+  connector_bootstrap_secret: password?
   connector_id: str?
   connector_secret: password?
   tenant_id: str?

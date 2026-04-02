@@ -215,7 +215,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 },
             }
             register_headers = {"content-type": "application/json"}
-            bootstrap_secret = os.getenv("ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET", "")
+            bootstrap_secret = settings.connector_bootstrap_secret or os.getenv("ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET", "")
             if bootstrap_secret:
                 register_headers["x-connector-bootstrap-secret"] = bootstrap_secret
             try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.constants import APP_BUILD_ID, APP_QUERY_RESOLUTION_REV, APP_VERSION
 from app.main import app
 
 def test_health_returns_200():
@@ -19,9 +20,9 @@ def test_health_returns_200():
     assert "status" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
-    assert data["version"] == "0.3.8"
-    assert data["build_id"] == "qr-20260401-cab5ea8"
-    assert data["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
+    assert data["version"] == APP_VERSION
+    assert data["build_id"] == APP_BUILD_ID
+    assert data["query_resolution_rev"] == APP_QUERY_RESOLUTION_REV
 
 
 def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
@@ -37,9 +38,9 @@ def test_healthz_returns_service_up_without_nested_checks(monkeypatch):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["status"] == "ok"
-    assert payload["version"] == "0.3.8"
-    assert payload["build_id"] == "qr-20260401-cab5ea8"
-    assert payload["query_resolution_rev"] == "query-fallback-tracks-artists-albums-playlists-v2"
+    assert payload["version"] == APP_VERSION
+    assert payload["build_id"] == APP_BUILD_ID
+    assert payload["query_resolution_rev"] == APP_QUERY_RESOLUTION_REV
     assert isinstance(payload["checks"], list)
     assert payload["checks"][0]["key"] == "service"
 
