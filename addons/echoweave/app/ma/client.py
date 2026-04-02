@@ -508,6 +508,7 @@ class MusicAssistantClient:
         if item_id:
             payload_candidates.append({"media_type": media_type, "item_id": item_id})
 
+        playback_start_failed_observed = False
         for attempt, payload in enumerate(payload_candidates, 1):
             try:
                 logger.warning(
@@ -568,6 +569,7 @@ class MusicAssistantClient:
                     )
                     if playback_started:
                         return playable
+                    playback_start_failed_observed = True
                 playable = await self.get_next_playable_item(
                     queue_id,
                     request_id=request_id,
@@ -598,6 +600,7 @@ class MusicAssistantClient:
                     )
                     if playback_started:
                         return playable
+                    playback_start_failed_observed = True
             except MusicAssistantError as exc:
                 logger.warning(
                     json.dumps(
@@ -612,6 +615,27 @@ class MusicAssistantClient:
                     )
                 )
                 continue
+
+        if playback_start_failed_observed:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_playback_not_confirmed",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": player_id,
+                        "item_name": str(item.get("name") or ""),
+                    }
+                )
+            )
+            raise MusicAssistantError(
+                json.dumps(
+                    {
+                        "code": "play_start_failed",
+                        "message": "Playback could not be started after enqueue.",
+                    }
+                )
+            )
         
         logger.warning(
             json.dumps(

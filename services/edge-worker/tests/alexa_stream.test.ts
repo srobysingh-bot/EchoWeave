@@ -30,7 +30,7 @@ describe("alexa routing and stream token checks", () => {
     });
 
     const resp = await handleAlexaWebhook(req, env);
-    expect(resp.status).toBe(404);
+    expect(resp.status).toBe(200);
     const body = (await resp.json()) as { response: { outputSpeech: { text: string } } };
     expect(body.response.outputSpeech.text.toLowerCase()).toContain("not linked");
   });

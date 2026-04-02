@@ -310,6 +310,14 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     try {
       doErrorText = await doResp.clone().text();
       const errorPayload = (JSON.parse(doErrorText) as { error?: string }) ?? {};
+      const rawError = String(errorPayload.error ?? "");
+      let parsedConnectorError = rawError;
+      try {
+        const nested = JSON.parse(rawError) as { code?: string; message?: string };
+        parsedConnectorError = String(nested.code ?? nested.message ?? rawError);
+      } catch {
+        // keep raw connector error text
+      }
       console.warn(
         JSON.stringify({
           event: "connector_dispatch_failed",
@@ -321,6 +329,16 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
           do_error: errorPayload.error ?? "",
         }),
       );
+      if (parsedConnectorError.includes("play_start_failed")) {
+        const speech = "I found the track, but playback could not be started.";
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech }));
+        return json(buildAlexaSpeechResponse(speech), 200);
+      }
+      if (parsedConnectorError.includes("query_no_match")) {
+        const speech = "I could not find a playable result for that request.";
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech }));
+        return json(buildAlexaSpeechResponse(speech), 200);
+      }
       if ((errorPayload.error ?? "").includes("timeout")) {
         console.warn(JSON.stringify({ event: "connector_dispatch_timeout", request_id: requestId, tenant_id: home.tenant_id, home_id: home.home_id }));
       }
@@ -402,6 +420,6 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     stream_token_id: tokenId,
   }));
 
-  return json(buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, `Playing ${prepared.title}`));
+  return json(buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now."));
 }
 
