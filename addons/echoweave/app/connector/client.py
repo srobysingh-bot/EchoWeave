@@ -55,24 +55,41 @@ class ConnectorClient:
         }
         url = f"{self.backend_url}/v1/connectors/register"
         try:
+            # Get bootstrap secret from config if available
+            config_svc = getattr(self, '_config_service', None)
+            bootstrap_secret = ""
+            if config_svc:
+                try:
+                    bootstrap_secret = config_svc.settings.connector_bootstrap_secret or ""
+                except Exception:
+                    pass
+            
+            headers = {"x-connector-bootstrap-secret": bootstrap_secret} if bootstrap_secret else {}
+            
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(url, json=payload)
+                if headers:
+                    resp = await client.post(url, json=payload, headers=headers)
+                else:
+                    resp = await client.post(url, json=payload)
+            
             if resp.status_code != 200:
                 self.state.registered = False
                 self.state.registration_message = f"register-failed:{resp.status_code}"
                 logger.warning(
-                    "Connector registration failed: status=%s body=%s",
+                    "Connector registration failed: status=%s bootstrap_set=%s body=%s",
                     resp.status_code,
+                    bool(bootstrap_secret),
                     resp.text,
                 )
                 return False
             self.state.registered = True
             self.state.registration_message = "registered"
             logger.info(
-                "Connector registered: connector_id=%s tenant_id=%s home_id=%s",
+                "Connector registered: connector_id=%s tenant_id=%s home_id=%s bootstrap_set=%s",
                 self.connector_id,
                 self.tenant_id,
                 self.home_id,
+                bool(bootstrap_secret),
             )
             return True
         except Exception as exc:

@@ -143,6 +143,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             tenant_id=settings.tenant_id,
             home_id=settings.home_id,
         )
+        # Inject config service for bootstrap auth
+        connector_client._config_service = config_svc
         registry.register("connector_client", connector_client)
 
         async def _command_handler(command: dict) -> tuple[bool, str, dict]:

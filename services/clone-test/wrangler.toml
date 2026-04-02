@@ -1,0 +1,6 @@
+name = "echoweave-alexa-echo-test"
+main = "src/index.ts"
+compatibility_date = "2024-03-29"
+
+[observability]
+enabled = true

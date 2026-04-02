@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
+from app.edge.stream_router import cache_stream_url
 from app.ma.client import MusicAssistantClient
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,25 @@ async def execute_edge_command(
             resolved.get("queue_item_id"),
             resolved.get("origin_stream_path"),
         )
+        
+        # Cache the stream URL to avoid re-fetching during stream request
+        queue_id_val = resolved.get("queue_id")
+        queue_item_id_val = resolved.get("queue_item_id")
+        if queue_id_val and queue_item_id_val:
+            # Build stream context to get the actual source URL without blocking stream endpoint
+            try:
+                stream_ctx = await ma_client.build_stream_context(
+                    queue_id=queue_id_val,
+                    queue_item_id=queue_item_id_val,
+                )
+                source_url = stream_ctx.get("source_url")
+                if source_url:
+                    cache_stream_url(queue_id_val, queue_item_id_val, source_url)
+                    logger.debug(f"Cached stream URL for {queue_id_val}/{queue_item_id_val}")
+            except Exception as cache_exc:
+                logger.warning(f"Failed to cache stream URL: {cache_exc}")
+                # Don't fail prepare_play if caching fails
+        
         return resolved
 
     if command == "get_current_item":
