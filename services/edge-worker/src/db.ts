@@ -170,3 +170,38 @@ export async function recordStreamToken(
     .bind(input.id, input.playback_session_id)
     .run();
 }
+
+export async function getRecordedStreamToken(
+  db: D1Database,
+  input: {
+    id: string;
+    tenant_id: string;
+    home_id: string;
+    playback_session_id: string;
+    token_signature: string;
+  },
+): Promise<{ id: string; expires_at: string } | null> {
+  const row = await db
+    .prepare(
+      `
+      SELECT id, expires_at
+      FROM stream_tokens
+      WHERE id = ?
+        AND tenant_id = ?
+        AND home_id = ?
+        AND playback_session_id = ?
+        AND token_signature = ?
+      LIMIT 1
+      `,
+    )
+    .bind(
+      input.id,
+      input.tenant_id,
+      input.home_id,
+      input.playback_session_id,
+      input.token_signature,
+    )
+    .first<{ id: string; expires_at: string }>();
+
+  return row ?? null;
+}

@@ -199,11 +199,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "connector_secret": settings.connector_secret,
                 "tenant_id": settings.tenant_id,
                 "home_id": settings.home_id,
-                    "origin_base_url": settings.tunnel_base_url,
-                    "alexa_source_queue_id": settings.alexa_source_queue_id,
+                "alexa_source_queue_id": settings.alexa_source_queue_id,
                 "capabilities": {
                     "commands": [
                         "prepare_play",
+                        "resolve_stream",
                         "get_current_item",
                         "get_next_item",
                         "get_state",

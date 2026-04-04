@@ -5,6 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.15] - 2026-04-04
+
+### Changed
+
+- Move playback handoff to Worker-only public edge path for stream delivery (`workers.dev` URL returned to Alexa).
+- Add connector `resolve_stream` descriptor flow so Worker resolves source URL via private connector channel before proxying audio.
+- Remove tunnel-origin dependency from edge playback registration path.
+- Add/extend stream diagnostics for Worker stream proxy and add-on stream descriptor lookup stages.
+- Align add-on/runtime version markers to `0.3.15`.
+
 ## [0.3.8] - 2026-04-01
 
 ### Changed

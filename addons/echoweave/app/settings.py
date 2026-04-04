@@ -199,7 +199,6 @@ class Settings(BaseSettings):
                 field
                 for field in (
                     "worker_base_url",
-                    "tunnel_base_url",
                     "edge_shared_secret",
                     "connector_id",
                     "connector_secret",
@@ -242,7 +241,6 @@ class Settings(BaseSettings):
         if self.is_edge_mode:
             return bool(
                 self.worker_base_url
-                and self.tunnel_base_url
                 and self.edge_shared_secret
                 and self.connector_id
                 and self.connector_secret

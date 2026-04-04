@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from typing import Any
+
+import httpx
 
 from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
@@ -121,6 +125,121 @@ async def execute_edge_command(
                 # Don't fail prepare_play if caching fails
         
         return resolved
+
+    if command == "resolve_stream":
+        queue_id_val = str(payload.get("queue_id") or "").strip()
+        queue_item_id_val = str(payload.get("queue_item_id") or "").strip()
+        request_id = str(payload.get("request_id") or payload.get("token_id") or "")
+        token_id = str(payload.get("token_id") or "")
+        playback_session_id = str(payload.get("playback_session_id") or "")
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "edge_stream_request_start",
+                    "request_id": request_id,
+                    "token_id": token_id,
+                    "playback_session_id": playback_session_id,
+                    "queue_id": queue_id_val,
+                    "queue_item_id": queue_item_id_val,
+                }
+            )
+        )
+
+        stream_ctx = await ma_client.build_stream_context(queue_id=queue_id_val, queue_item_id=queue_item_id_val)
+        source_url = str(stream_ctx.get("source_url") or "")
+        if not source_url:
+            raise MusicAssistantError("stream_source_unavailable")
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "edge_stream_lookup_done",
+                    "request_id": request_id,
+                    "token_id": token_id,
+                    "playback_session_id": playback_session_id,
+                    "queue_id": queue_id_val,
+                    "queue_item_id": queue_item_id_val,
+                    "origin_stream_path": stream_ctx.get("origin_stream_path", ""),
+                }
+            )
+        )
+
+        probe_status = 0
+        first_byte_ms = 0.0
+        probe_headers: dict[str, str] = {}
+        probe_start = time.perf_counter()
+        try:
+            timeout = httpx.Timeout(10.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                probe_resp = await client.get(source_url, headers={"Range": "bytes=0-0"})
+                first_byte_ms = round((time.perf_counter() - probe_start) * 1000, 1)
+                probe_status = probe_resp.status_code
+                probe_headers = {
+                    "content_type": probe_resp.headers.get("content-type", ""),
+                    "accept_ranges": probe_resp.headers.get("accept-ranges", ""),
+                    "content_range": probe_resp.headers.get("content-range", ""),
+                    "content_length": probe_resp.headers.get("content-length", ""),
+                }
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "edge_stream_upstream_first_byte",
+                            "request_id": request_id,
+                            "token_id": token_id,
+                            "playback_session_id": playback_session_id,
+                            "queue_id": queue_id_val,
+                            "queue_item_id": queue_item_id_val,
+                            "first_byte_ms": first_byte_ms,
+                            "upstream_status": probe_status,
+                        }
+                    )
+                )
+        except Exception as exc:
+            first_byte_ms = round((time.perf_counter() - probe_start) * 1000, 1)
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "edge_stream_upstream_first_byte",
+                        "request_id": request_id,
+                        "token_id": token_id,
+                        "playback_session_id": playback_session_id,
+                        "queue_id": queue_id_val,
+                        "queue_item_id": queue_item_id_val,
+                        "first_byte_ms": first_byte_ms,
+                        "upstream_status": 0,
+                        "error": str(exc),
+                    }
+                )
+            )
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "edge_stream_response",
+                    "request_id": request_id,
+                    "token_id": token_id,
+                    "playback_session_id": playback_session_id,
+                    "queue_id": queue_id_val,
+                    "queue_item_id": queue_item_id_val,
+                    "status": probe_status,
+                    "first_byte_ms": first_byte_ms,
+                    "content_type": probe_headers.get("content_type", ""),
+                    "accept_ranges": probe_headers.get("accept_ranges", ""),
+                    "content_length": probe_headers.get("content_length", ""),
+                    "content_range": probe_headers.get("content_range", ""),
+                    "source_url": source_url,
+                }
+            )
+        )
+
+        return {
+            "queue_id": queue_id_val,
+            "queue_item_id": queue_item_id_val,
+            "origin_stream_path": stream_ctx.get("origin_stream_path", ""),
+            "source_url": source_url,
+            "content_type": stream_ctx.get("content_type", "audio/mpeg"),
+        }
 
     if command == "get_current_item":
         item = await ma_client.get_current_playable_item(queue_id or None)

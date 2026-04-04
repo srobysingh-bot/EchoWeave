@@ -64,6 +64,7 @@ class EdgeConnectorWSClient:
         self._capabilities = {
             "commands": [
                 "prepare_play",
+                "resolve_stream",
                 "get_current_item",
                 "get_next_item",
                 "get_state",
