@@ -337,11 +337,45 @@ class MusicAssistantClient:
                     if candidate_queue_id and candidate_queue_id == effective_queue_id:
                         return player_id
 
+        # Prefer players that are online and likely capable of accepting play commands.
+        for player in players:
+            player_id = str(player.get("player_id") or "").strip()
+            if player_id and self._is_player_play_capable(player):
+                return player_id
+
         for player in players:
             player_id = str(player.get("player_id") or "").strip()
             if player_id:
                 return player_id
         return None
+
+    def _is_player_play_capable(self, player: dict[str, Any]) -> bool:
+        available = bool(player.get("available", True))
+        powered = bool(player.get("powered", True))
+        state = str(player.get("state") or "").lower()
+        if not available or not powered:
+            return False
+        if state in {"unavailable", "offline"}:
+            return False
+        return True
+
+    def _player_inventory_snapshot(self, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for player in players:
+            out.append(
+                {
+                    "player_id": str(player.get("player_id") or ""),
+                    "name": str(player.get("name") or ""),
+                    "provider": str(player.get("provider") or player.get("source") or ""),
+                    "available": bool(player.get("available", True)),
+                    "powered": bool(player.get("powered", True)),
+                    "state": str(player.get("state") or ""),
+                    "active_queue": str(player.get("active_queue") or ""),
+                    "active_source": str(player.get("active_source") or ""),
+                    "queue_id": str(player.get("queue_id") or ""),
+                }
+            )
+        return out
 
     async def _start_playback_for_playable(
         self,
@@ -1132,6 +1166,30 @@ class MusicAssistantClient:
             "normalized_query": normalized_query,
         }
         logger.warning(json.dumps({**log_ctx, "phase": "start"}))
+        try:
+            players = await self.get_players()
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_player_inventory",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "requested_player_id": player_id,
+                        "players": self._player_inventory_snapshot(players),
+                    }
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_player_inventory_failed",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "error": str(exc),
+                    }
+                )
+            )
 
         if normalized_query:
             playable = await self._resolve_query_play_request(

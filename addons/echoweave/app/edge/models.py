@@ -56,6 +56,10 @@ class EdgeResponseEnvelope(BaseModel):
 
 
 class PreparePlayPayload(BaseModel):
+    request_id: str = ""
+    tenant_id: str = ""
+    home_id: str = ""
+    player_id: str = ""
     queue_id: str = ""
     intent_name: str = ""
     query: str = ""

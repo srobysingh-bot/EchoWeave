@@ -5,6 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.16] - 2026-04-04
+
+### Changed
+
+- Add request correlation fields (`request_id`, `tenant_id`, `home_id`) from Worker to add-on `prepare_play` command payload for cross-layer tracing.
+- Add MA player inventory diagnostics to capture selected `player_id`, online/availability state, active queue/source, and provider metadata during play resolution.
+- Improve player selection fallback to prefer online/play-capable players before generic fallback.
+- Expand playback start diagnostics to log play command targets, payloads, and MA provider error responses behind `play_start_failed`/`PlayerCommandFailed`.
+- Align add-on/runtime version markers to `0.3.16`.
+
 ## [0.3.15] - 2026-04-04
 
 ### Changed

@@ -52,14 +52,23 @@ async def execute_edge_command(
             raw_query,
             normalized_query,
         )
+        request_id = (prepare.request_id or "").strip()
+        home_id = (prepare.home_id or "").strip()
+        player_id = (prepare.player_id or "").strip()
         try:
             resolved = await ma_client.resolve_play_request(
                 queue_id=requested_queue_id,
                 query=raw_query or None,
                 intent_name=prepare.intent_name,
+                request_id=request_id,
+                home_id=home_id,
+                player_id=player_id,
             )
             logger.info(
-                "prepare_play_primary_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                "prepare_play_primary_resolve_ok request_id=%s home_id=%s player_id=%s queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                request_id,
+                home_id,
+                player_id,
                 resolved.get("queue_id"),
                 resolved.get("queue_item_id"),
                 resolved.get("origin_stream_path"),
@@ -84,9 +93,15 @@ async def execute_edge_command(
                     queue_id=None,
                     query=raw_query or None,
                     intent_name=prepare.intent_name,
+                    request_id=request_id,
+                    home_id=home_id,
+                    player_id=player_id,
                 )
                 logger.info(
-                    "prepare_play_fallback_resolve_ok queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                    "prepare_play_fallback_resolve_ok request_id=%s home_id=%s player_id=%s queue_id=%s queue_item_id=%s origin_stream_path=%s",
+                    request_id,
+                    home_id,
+                    player_id,
                     resolved.get("queue_id"),
                     resolved.get("queue_item_id"),
                     resolved.get("origin_stream_path"),

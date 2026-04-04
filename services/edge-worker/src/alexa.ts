@@ -294,6 +294,9 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     body: JSON.stringify({
       command_type: "prepare_play",
       payload: {
+        request_id: requestId,
+        tenant_id: home.tenant_id,
+        home_id: home.home_id,
         queue_id: home.alexa_source_queue_id ?? undefined,
         intent_name: intentName,
         query: rawQuery || undefined,
