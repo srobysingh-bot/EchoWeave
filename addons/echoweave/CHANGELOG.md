@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.18] - 2026-04-08
+
+### Added
+
+- Add `recent_alexa_users` tracking table to capture unlinked Alexa User IDs for easier debugging.
+- Add `/v1/admin/debug-info` endpoint to expose captured Alexa User IDs, resolution state, and expected connector bootstrap secret.
+- Bump add-on version to 0.3.18 and worker version to 0.1.4.
+
 ## [0.3.17] - 2026-04-08
 
 ### Fixed

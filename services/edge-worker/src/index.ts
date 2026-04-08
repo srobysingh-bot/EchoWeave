@@ -124,6 +124,31 @@ export default {
         return response;
       }
 
+      if (pathname === "/v1/admin/debug-info" && request.method === "GET") {
+        const recentUser = await env.ECHOWEAVE_DB.prepare("SELECT * FROM recent_alexa_users ORDER BY last_seen DESC LIMIT 1").first<{ alexa_user_id: string }>();
+        const alexaUserId = recentUser?.alexa_user_id ?? "No failed user ID logged recently.";
+        
+        let resolution = null;
+        if (recentUser) {
+          resolution = await env.ECHOWEAVE_DB.prepare(`
+            SELECT aa.tenant_id, aa.home_id, h.origin_base_url, h.alexa_source_queue_id
+            FROM alexa_accounts aa
+            LEFT JOIN homes h ON h.id = aa.home_id
+            WHERE aa.alexa_user_id = ?
+          `).bind(alexaUserId).first();
+        }
+
+        const debugPayload = {
+          full_alexa_user_id: alexaUserId,
+          resolved_tenant_id: resolution?.tenant_id ?? null,
+          resolved_home_id: resolution?.home_id ?? null,
+          queue_id: resolution?.alexa_source_queue_id ?? null,
+          origin_base_url_present: !!resolution?.origin_base_url,
+          worker_expected_bootstrap_secret: env.CONNECTOR_BOOTSTRAP_SECRET ?? null,
+        };
+        return withCors(json(debugPayload, 200));
+      }
+
       if (pathname === "/v1/alexa") {
         // GET /v1/alexa: human-readable endpoint check (paste URL in browser to verify)
         if (request.method === "GET") {

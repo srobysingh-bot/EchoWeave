@@ -294,7 +294,10 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }));
 
   if (!home) {
-    console.warn(JSON.stringify({ event: "alexa_home_resolution_failed", request_id: requestId, alexa_user_id_truncated: truncatedUserId }));
+    console.warn(JSON.stringify({ event: "alexa_home_resolution_failed", request_id: requestId, alexa_user_id: alexaUserId }));
+    try {
+      await env.ECHOWEAVE_DB.prepare("INSERT OR REPLACE INTO recent_alexa_users (alexa_user_id) VALUES (?)").bind(alexaUserId).run();
+    } catch {}
     return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 200);
   }
 
