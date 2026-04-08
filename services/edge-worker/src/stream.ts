@@ -1,5 +1,5 @@
-import { getRecordedStreamToken } from "./db";
-import { verifySignedStreamToken } from "./security";
+import { getOriginBaseUrl, getRecordedStreamToken } from "./db";
+import { signEdgeRequest, verifySignedStreamToken } from "./security";
 import { Env } from "./types";
 
 function copyStreamHeaders(upstream: Response): Headers {
@@ -37,6 +37,18 @@ export async function handleStreamRequestWithContext(
     return new Response("invalid or expired stream token", { status: 401 });
   }
 
+  console.info(JSON.stringify({
+    event: "stream_proxy_token_verified",
+    request_id: requestId,
+    token_id: claims.token_id,
+    tenant_id: claims.tenant_id,
+    home_id: claims.home_id,
+    playback_session_id: claims.playback_session_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
+    origin_stream_path: claims.origin_stream_path,
+  }));
+
   const tokenRecord = await getRecordedStreamToken(env.ECHOWEAVE_DB, {
     id: claims.token_id,
     tenant_id: claims.tenant_id,
@@ -50,10 +62,19 @@ export async function handleStreamRequestWithContext(
       request_id: requestId,
       reason: "unknown_stream_token",
       token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
       playback_session_id: claims.playback_session_id,
     }));
     return new Response("unknown stream token", { status: 401 });
   }
+
+  console.info(JSON.stringify({
+    event: "stream_proxy_token_record_found",
+    request_id: requestId,
+    token_id: claims.token_id,
+    expires_at: tokenRecord.expires_at,
+  }));
 
   const recordExpiry = Date.parse(tokenRecord.expires_at);
   if (Number.isFinite(recordExpiry) && recordExpiry < Date.now()) {
@@ -62,6 +83,8 @@ export async function handleStreamRequestWithContext(
       request_id: requestId,
       reason: "expired_stream_token_record",
       token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
       playback_session_id: claims.playback_session_id,
     }));
     return new Response("expired stream token", { status: 401 });
@@ -76,8 +99,19 @@ export async function handleStreamRequestWithContext(
     home_id: claims.home_id,
     token_id: claims.token_id,
     playback_session_id: claims.playback_session_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
     origin_stream_path: claims.origin_stream_path,
     has_range: !!request.headers.get("range"),
+  }));
+
+  // --- Resolve stream via connector DO ---
+  console.info(JSON.stringify({
+    event: "stream_proxy_resolve_started",
+    request_id: requestId,
+    token_id: claims.token_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
   }));
 
   const resolveStart = Date.now();
@@ -104,6 +138,10 @@ export async function handleStreamRequestWithContext(
       request_id: requestId,
       reason: "connector_stream_resolve_failed",
       token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
       playback_session_id: claims.playback_session_id,
       do_status: resolveResp.status,
       do_error_body: errorBody,
@@ -112,60 +150,147 @@ export async function handleStreamRequestWithContext(
   }
 
   const resolvePayload = (await resolveResp.json()) as { source_url?: string; origin_stream_path?: string };
-  const sourceUrl = String(resolvePayload.source_url ?? "");
-  if (!sourceUrl) {
-    console.warn(JSON.stringify({
-      event: "stream_proxy_failed",
-      request_id: requestId,
-      reason: "missing_source_url",
-      token_id: claims.token_id,
-      playback_session_id: claims.playback_session_id,
-    }));
-    return new Response("missing source url", { status: 502 });
-  }
+  const resolveMs = Date.now() - resolveStart;
 
-  let originUrl: URL;
-  try {
-    originUrl = new URL(sourceUrl);
-  } catch {
-    console.warn(JSON.stringify({
-      event: "stream_proxy_failed",
-      request_id: requestId,
-      reason: "invalid_source_url",
-      token_id: claims.token_id,
-      playback_session_id: claims.playback_session_id,
-      source_url: sourceUrl,
-    }));
-    return new Response("invalid source url", { status: 502 });
-  }
-  if (!originUrl.protocol.startsWith("http")) {
-    console.warn(JSON.stringify({
-      event: "stream_proxy_failed",
-      request_id: requestId,
-      reason: "unsupported_source_protocol",
-      token_id: claims.token_id,
-      playback_session_id: claims.playback_session_id,
-      source_url: sourceUrl,
-    }));
-    return new Response("unsupported source url", { status: 502 });
-  }
+  console.info(JSON.stringify({
+    event: "stream_proxy_resolve_done",
+    request_id: requestId,
+    token_id: claims.token_id,
+    has_source_url: !!resolvePayload.source_url,
+    has_origin_stream_path: !!resolvePayload.origin_stream_path,
+    resolve_ms: resolveMs,
+  }));
 
-  const path = resolvePayload.origin_stream_path && resolvePayload.origin_stream_path.startsWith("/")
+  // --- Determine origin_stream_path (canonical upstream path) ---
+  const originStreamPath = (resolvePayload.origin_stream_path && resolvePayload.origin_stream_path.startsWith("/"))
     ? resolvePayload.origin_stream_path
     : claims.origin_stream_path.startsWith("/")
       ? claims.origin_stream_path
       : `/${claims.origin_stream_path}`;
 
+  if (!originStreamPath || originStreamPath === "/") {
+    console.warn(JSON.stringify({
+      event: "stream_proxy_failed",
+      request_id: requestId,
+      reason: "missing_origin_stream_path",
+      token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      playback_session_id: claims.playback_session_id,
+      resolve_origin_stream_path: resolvePayload.origin_stream_path ?? "",
+      claims_origin_stream_path: claims.origin_stream_path ?? "",
+    }));
+    return new Response("missing origin stream path", { status: 502 });
+  }
+
+  // --- Look up reachable add-on origin base URL ---
+  const originBaseUrl = await getOriginBaseUrl(env.ECHOWEAVE_DB, claims.home_id, claims.tenant_id);
+  if (!originBaseUrl) {
+    console.warn(JSON.stringify({
+      event: "stream_proxy_failed",
+      request_id: requestId,
+      reason: "missing_origin_base_url",
+      token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      playback_session_id: claims.playback_session_id,
+    }));
+    return new Response("missing origin base url for home", { status: 502 });
+  }
+
+  // --- Build upstream URL from origin base + origin_stream_path ---
+  let upstreamUrl: URL;
+  try {
+    upstreamUrl = new URL(originStreamPath, originBaseUrl);
+  } catch {
+    console.warn(JSON.stringify({
+      event: "stream_proxy_failed",
+      request_id: requestId,
+      reason: "invalid_upstream_url",
+      token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      playback_session_id: claims.playback_session_id,
+      origin_base_url: originBaseUrl,
+      origin_stream_path: originStreamPath,
+    }));
+    return new Response("invalid upstream url", { status: 502 });
+  }
+
+  // --- Sign request for add-on edge auth ---
+  const edgeSig = await signEdgeRequest(env.EDGE_ORIGIN_SHARED_SECRET, "GET", upstreamUrl.pathname);
+
+  // --- Build upstream request headers ---
+  const upstreamHeaders: Record<string, string> = {
+    "x-edge-timestamp": edgeSig.timestamp,
+    "x-edge-signature": edgeSig.signature,
+    "x-edge-token-id": claims.token_id,
+    "x-edge-playback-session-id": claims.playback_session_id,
+    "x-request-id": requestId,
+  };
+  const rangeHeader = request.headers.get("range");
+  if (rangeHeader) upstreamHeaders["range"] = rangeHeader;
+  const ifRangeHeader = request.headers.get("if-range");
+  if (ifRangeHeader) upstreamHeaders["if-range"] = ifRangeHeader;
+
+  console.info(JSON.stringify({
+    event: "stream_proxy_upstream_target",
+    request_id: requestId,
+    token_id: claims.token_id,
+    tenant_id: claims.tenant_id,
+    home_id: claims.home_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
+    upstream_host: upstreamUrl.hostname,
+    upstream_path: upstreamUrl.pathname,
+    upstream_origin: upstreamUrl.origin,
+    source_url_for_diag: resolvePayload.source_url ?? "(none)",
+    target_source: "origin_stream_path",
+    has_edge_signature: true,
+    has_range: !!rangeHeader,
+    has_if_range: !!ifRangeHeader,
+  }));
+
+  // --- Fetch from add-on edge stream route ---
   const upstreamStart = Date.now();
-  const upstream = await fetch(originUrl.toString(), {
-    method: "GET",
-    headers: {
-      "x-edge-token-id": claims.token_id,
-      "x-edge-playback-session-id": claims.playback_session_id,
-      ...(request.headers.get("range") ? { range: request.headers.get("range") as string } : {}),
-    },
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(upstreamUrl.toString(), {
+      method: "GET",
+      headers: upstreamHeaders,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "unknown";
+    console.warn(JSON.stringify({
+      event: "stream_proxy_failed",
+      request_id: requestId,
+      reason: "edge_upstream_fetch_error",
+      token_id: claims.token_id,
+      tenant_id: claims.tenant_id,
+      home_id: claims.home_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      playback_session_id: claims.playback_session_id,
+      upstream_url: upstreamUrl.toString(),
+      error: message,
+    }));
+    return new Response("edge upstream fetch error", { status: 502 });
+  }
   const firstByteMs = Date.now() - upstreamStart;
+
+  console.info(JSON.stringify({
+    event: "stream_proxy_upstream_request",
+    request_id: requestId,
+    token_id: claims.token_id,
+    upstream_status: upstream.status,
+    first_byte_ms: firstByteMs,
+  }));
 
   if (!upstream.ok && upstream.status !== 206) {
     console.warn(
@@ -173,11 +298,16 @@ export async function handleStreamRequestWithContext(
         event: "stream_proxy_failed",
         request_id: requestId,
         reason: "origin_stream_error",
+        token_id: claims.token_id,
+        tenant_id: claims.tenant_id,
+        home_id: claims.home_id,
+        queue_id: claims.queue_id,
+        queue_item_id: claims.queue_item_id,
+        playback_session_id: claims.playback_session_id,
         origin_status: upstream.status,
-        origin_url: originUrl.toString(),
-        origin_private_path: path,
-        source: "connector_resolve_stream",
-        resolve_ms: Date.now() - resolveStart,
+        upstream_url_host: upstreamUrl.hostname,
+        upstream_url_path: upstreamUrl.pathname,
+        resolve_ms: resolveMs,
         first_byte_ms: firstByteMs,
       }),
     );
@@ -192,12 +322,15 @@ export async function handleStreamRequestWithContext(
       home_id: claims.home_id,
       token_id: claims.token_id,
       playback_session_id: claims.playback_session_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
       status: upstream.status,
-      resolve_ms: Date.now() - resolveStart,
+      resolve_ms: resolveMs,
       first_byte_ms: firstByteMs,
       total_ms: Date.now() - startedAt,
-      origin_private_path: path,
-      source: "connector_resolve_stream",
+      upstream_host: upstreamUrl.hostname,
+      upstream_path: upstreamUrl.pathname,
+      target_source: "origin_stream_path",
       content_type: upstream.headers.get("content-type") ?? "",
       accept_ranges: upstream.headers.get("accept-ranges") ?? "",
       content_length: upstream.headers.get("content-length") ?? "",

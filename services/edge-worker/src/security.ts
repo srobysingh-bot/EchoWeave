@@ -56,6 +56,18 @@ export async function verifyPayloadSignature(payload: string, signature: string,
   return crypto.subtle.verify("HMAC", key, toArrayBuffer(fromBase64Url(signature)), encoder.encode(payload));
 }
 
+export async function signEdgeRequest(
+  secret: string,
+  method: string,
+  path: string,
+): Promise<{ timestamp: string; signature: string }> {
+  const ts = String(Math.floor(Date.now() / 1000));
+  const payload = `${ts}:${method.toUpperCase()}:${path}`;
+  const key = await importHmacKey(secret);
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return { timestamp: ts, signature: toBase64Url(sig) };
+}
+
 export async function issueSignedStreamToken(claims: StreamTokenClaims, secret: string): Promise<string> {
   const payload = JSON.stringify(claims);
   const encodedPayload = toBase64Url(encoder.encode(payload));

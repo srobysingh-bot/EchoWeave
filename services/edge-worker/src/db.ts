@@ -205,3 +205,23 @@ export async function getRecordedStreamToken(
 
   return row ?? null;
 }
+
+export async function getOriginBaseUrl(
+  db: D1Database,
+  homeId: string,
+  tenantId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `
+      SELECT origin_base_url
+      FROM homes
+      WHERE id = ? AND tenant_id = ? AND is_active = 1
+      LIMIT 1
+      `,
+    )
+    .bind(homeId, tenantId)
+    .first<{ origin_base_url: string }>();
+
+  return row?.origin_base_url || null;
+}

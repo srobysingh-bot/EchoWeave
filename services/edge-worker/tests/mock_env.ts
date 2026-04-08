@@ -119,6 +119,19 @@ export class MockD1Database {
       return { origin_base_url: home.origin_base_url };
     }
 
+    if (sql.includes("from stream_tokens") && sql.includes("where id = ?")) {
+      const [id, tenantId, homeId, playbackSessionId, tokenSignature] = args as [string, string, string, string, string];
+      const token = this.streamTokens.get(id);
+      if (
+        !token ||
+        token.tenant_id !== tenantId ||
+        token.home_id !== homeId ||
+        token.playback_session_id !== playbackSessionId ||
+        token.token_signature !== tokenSignature
+      ) return null;
+      return { id: token.id, expires_at: token.expires_at };
+    }
+
     return null;
   }
 
@@ -249,6 +262,25 @@ export function createEnv(overrides?: Partial<Env>): Env {
             return new Response(JSON.stringify({ online: false }), { status: 200, headers: { "content-type": "application/json" } });
           }
           if (url.endsWith("/command")) {
+            // Parse body to distinguish command types
+            let commandType = "prepare_play";
+            try {
+              const body = init?.body ? JSON.parse(String(init.body)) : {};
+              commandType = body.command_type ?? "prepare_play";
+            } catch {
+              // default to prepare_play
+            }
+
+            if (commandType === "resolve_stream") {
+              return new Response(
+                JSON.stringify({
+                  origin_stream_path: "/edge/stream/q1/i1",
+                  source_url: "http://192.168.1.100:8095/media/track/123",
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            }
+
             return new Response(
               JSON.stringify({
                 queue_id: "q1",

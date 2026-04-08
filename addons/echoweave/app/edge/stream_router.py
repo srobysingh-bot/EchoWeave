@@ -59,6 +59,20 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     path = request.url.path
     ts, sig = extract_edge_auth_headers(request.headers)
 
+    if not ts or not sig:
+        auth_fail_reason = "missing_signature" if not sig else "missing_timestamp"
+        logger.warning(json.dumps({
+            "event": "edge_stream_auth_failed",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "reason": auth_fail_reason,
+            "has_timestamp": bool(ts),
+            "has_signature": bool(sig),
+            "has_range": bool(request.headers.get("range")),
+        }))
+        raise HTTPException(status_code=401, detail="Invalid edge signature")
+
     if not verify_edge_request(
         shared_secret=shared_secret,
         method="GET",
@@ -66,6 +80,24 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         timestamp=ts,
         signature=sig,
     ):
+        # Determine specific failure reason for operator diagnostics
+        auth_fail_reason = "invalid_signature"
+        try:
+            ts_value = int(ts)
+            import time as _time
+            if abs(_time.time() - ts_value) > 60:
+                auth_fail_reason = "stale_timestamp"
+        except ValueError:
+            auth_fail_reason = "invalid_timestamp_format"
+
+        logger.warning(json.dumps({
+            "event": "edge_stream_auth_failed",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "reason": auth_fail_reason,
+            "has_range": bool(request.headers.get("range")),
+        }))
         raise HTTPException(status_code=401, detail="Invalid edge signature")
 
     logger.info(json.dumps({

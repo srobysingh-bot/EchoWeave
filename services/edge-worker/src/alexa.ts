@@ -153,14 +153,25 @@ function buildAlexaAudioPlayResponse(streamUrl: string, token: string, speech?: 
   };
 }
 
-function buildAlexaSpeechResponse(text: string): Record<string, unknown> {
+function buildAlexaSpeechResponse(text: string, shouldEndSession = true): Record<string, unknown> {
   return {
     version: "1.0",
     response: {
       outputSpeech: { type: "PlainText", text },
-      shouldEndSession: true,
+      shouldEndSession,
     },
   };
+}
+
+function hasAudioPlayerDirective(payload: Record<string, unknown>): boolean {
+  const response = payload.response;
+  if (!response || typeof response !== "object") return false;
+  const directives = (response as Record<string, unknown>).directives;
+  if (!Array.isArray(directives)) return false;
+  return directives.some((d) => {
+    if (!d || typeof d !== "object") return false;
+    return (d as Record<string, unknown>).type === "AudioPlayer.Play";
+  });
 }
 
 export async function handleAlexaWebhook(request: Request, env: Env): Promise<Response> {
@@ -236,18 +247,30 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }
 
   if (requestType === "LaunchRequest") {
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start." }));
-    return json(buildAlexaSpeechResponse("Welcome to EchoWeave. Say play to start."));
+    const payload = {
+      version: "1.0",
+      response: {
+        outputSpeech: { type: "PlainText", text: "Welcome to EchoWeave. Say play to start." },
+        reprompt: {
+          outputSpeech: { type: "PlainText", text: "What do you want to hear?" },
+        },
+        shouldEndSession: false,
+      },
+    };
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload);
   }
 
   if (requestType !== "IntentRequest") {
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: requestType, response_status: 200, speech: "empty-response" }));
-    return json({ version: "1.0", response: {} });
+    const payload = { version: "1.0", response: {} };
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: requestType, response_status: 200, speech: "empty-response", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload);
   }
 
   if (!["PlayIntent", "PlayAudio", "AMAZON.ResumeIntent"].includes(intentName)) {
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "IntentRequest", intent_name: intentName, response_status: 200, speech: "That command is not available yet." }));
-    return json(buildAlexaSpeechResponse("That command is not available yet."));
+    const payload = buildAlexaSpeechResponse("That command is not available yet.");
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "IntentRequest", intent_name: intentName, response_status: 200, speech: "That command is not available yet.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload);
   }
 
   // Log 5: Alexa user ID extraction
@@ -334,13 +357,15 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       );
       if (parsedConnectorError.includes("play_start_failed")) {
         const speech = "I found the track, but playback could not be started.";
-        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech }));
-        return json(buildAlexaSpeechResponse(speech), 200);
+        const payload = buildAlexaSpeechResponse(speech);
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+        return json(payload, 200);
       }
       if (parsedConnectorError.includes("query_no_match")) {
         const speech = "I could not find a playable result for that request.";
-        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech }));
-        return json(buildAlexaSpeechResponse(speech), 200);
+        const payload = buildAlexaSpeechResponse(speech);
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+        return json(payload, 200);
       }
       if ((errorPayload.error ?? "").includes("timeout")) {
         console.warn(JSON.stringify({ event: "connector_dispatch_timeout", request_id: requestId, tenant_id: home.tenant_id, home_id: home.home_id }));
@@ -358,15 +383,17 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         }),
       );
     }
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Your home connector is offline. Please try again." }));
-    return json(buildAlexaSpeechResponse("Your home connector is offline. Please try again."), 200);
+    const payload = buildAlexaSpeechResponse("Your home connector is offline. Please try again.");
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Your home connector is offline. Please try again.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload, 200);
   }
 
   const prepared = (await doResp.json()) as PreparedPlayContext;
   if (!prepared.queue_id || !prepared.queue_item_id || !prepared.origin_stream_path) {
     console.warn(JSON.stringify({ event: "alexa_prepared_play_incomplete", request_id: requestId, has_queue_id: !!prepared.queue_id, has_queue_item_id: !!prepared.queue_item_id, has_origin_stream_path: !!prepared.origin_stream_path }));
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Could not resolve a playable item." }));
-    return json(buildAlexaSpeechResponse("Could not resolve a playable item."), 200);
+    const payload = buildAlexaSpeechResponse("Could not resolve a playable item.");
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Could not resolve a playable item.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload, 200);
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -401,6 +428,16 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     }),
   });
 
+  console.info(JSON.stringify({
+    event: "alexa_playback_session_created",
+    request_id: requestId,
+    tenant_id: home.tenant_id,
+    home_id: home.home_id,
+    playback_session_id: playbackSessionId,
+    queue_id: prepared.queue_id,
+    queue_item_id: prepared.queue_item_id,
+  }));
+
   await recordStreamToken(env.ECHOWEAVE_DB, {
     id: tokenId,
     tenant_id: home.tenant_id,
@@ -410,9 +447,20 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
   });
 
+  console.info(JSON.stringify({
+    event: "alexa_stream_token_issued",
+    request_id: requestId,
+    token_id: tokenId,
+    tenant_id: home.tenant_id,
+    home_id: home.home_id,
+    playback_session_id: playbackSessionId,
+    origin_stream_path: prepared.origin_stream_path,
+  }));
+
   const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
 
   // Log 9: Final success response
+  const payload = buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now.");
   console.info(JSON.stringify({
     event: "alexa_response_sent",
     request_id: requestId,
@@ -423,8 +471,10 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     stream_token_id: tokenId,
     stream_url: streamUrl,
     origin_stream_path: prepared.origin_stream_path,
+    has_audio_player_play: hasAudioPlayerDirective(payload),
+    response_payload: payload,
   }));
 
-  return json(buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now."));
+  return json(payload);
 }
 
