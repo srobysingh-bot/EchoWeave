@@ -5,6 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.17] - 2026-04-08
+
+### Fixed
+
+- Route worker stream through signed add-on edge route instead of private MA URL.
+- Update `stream.ts` to build upstream URL from `origin_base_url + origin_stream_path` with HMAC signing.
+- Support `shouldEndSession` override in `buildAlexaSpeechResponse` and add stream token logs.
+- Add structured `edge_stream_auth_failed` logging to add-on `stream_router.py`.
+- Bump worker version to `0.1.3` and add-on markers to `0.3.17`.
+
 ## [0.3.16] - 2026-04-04
 
 ### Changed
