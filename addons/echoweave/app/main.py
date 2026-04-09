@@ -36,6 +36,7 @@ from app.web.routes_status import router as status_router
 from app.web.routes_setup import router as setup_router
 from app.web.routes_logs import router as logs_router, install_log_buffer
 from app.web.routes_config import router as config_router
+from app.ma.router import router as ma_router
 from app.web.ingress import get_ingress_base_path
 
 logger = logging.getLogger(__name__)
@@ -194,11 +195,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         registry.register("edge_connector_ws", edge_client)
 
         if settings.connector_configured:
+            origin_base_url = settings.tunnel_base_url or settings.public_base_url or settings.stream_base_url
             register_payload = {
                 "connector_id": settings.connector_id,
                 "connector_secret": settings.connector_secret,
                 "tenant_id": settings.tenant_id,
                 "home_id": settings.home_id,
+                "origin_base_url": origin_base_url,
                 "alexa_source_queue_id": settings.alexa_source_queue_id,
                 "capabilities": {
                     "commands": [
@@ -333,6 +336,7 @@ def create_app() -> FastAPI:
     _app.include_router(setup_router)
     _app.include_router(logs_router)
     _app.include_router(config_router)
+    _app.include_router(ma_router)
     if startup_settings.is_edge_mode:
         from app.edge.stream_router import router as edge_stream_router
 

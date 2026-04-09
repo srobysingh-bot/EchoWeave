@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
  
+## [0.3.21] - 2026-04-09
+ 
+### Fixed
+ 
+- Added dummy `/ma/push-url` endpoint to resolve 404 errors during Music Assistant callback registration.
+- Improved integration stability by acknowledging MA push notifications.
+ 
 ## [0.3.20] - 2026-04-09
  
 ### Fixed
