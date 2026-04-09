@@ -185,35 +185,6 @@ class MusicAssistantClient:
                 f"MA API error: {status} (method=POST path={endpoint} command={command} payload={payload_text} body={body_text})"
             ) from exc
 
-    def _queue_paths(self, queue_id: str, suffix: str = "") -> list[str]:
-        normalized_queue_id = self._sanitize_queue_id(queue_id, source="queue_paths")
-        if not normalized_queue_id:
-            raise MusicAssistantError("Invalid or stale queue id rejected before MA queue GET.")
-        # MA versions differ in queue REST route naming; try both variants.
-        return [
-            f"/api/player_queues/{normalized_queue_id}{suffix}",
-            f"/api/playerqueues/{normalized_queue_id}{suffix}",
-        ]
-
-    async def _get_with_path_fallback(self, paths: list[str]) -> httpx.Response:
-        last_error: MusicAssistantError | None = None
-        for idx, path in enumerate(paths):
-            try:
-                resp = await self._get(path)
-                if idx > 0:
-                    logger.info("MA API fallback path succeeded: method=GET path=%s", path)
-                return resp
-            except MusicAssistantError as exc:
-                last_error = exc
-                # Retry only for 404 on alternate path candidates.
-                if "MA API error: 404" in str(exc) and idx < len(paths) - 1:
-                    logger.warning("MA API 404 for path=%s; retrying alternate queue path", path)
-                    continue
-                raise
-        if last_error:
-            raise last_error
-        raise MusicAssistantError("MA API fallback failed: no paths attempted")
-
     async def _post_command_with_fallback(self, commands: list[str], **payload: Any) -> Any:
         last_error: MusicAssistantError | None = None
         for idx, command in enumerate(commands):
@@ -232,6 +203,14 @@ class MusicAssistantClient:
         if last_error:
             raise last_error
         raise MusicAssistantError("MA API fallback failed: no commands attempted")
+
+    def _queue_commands(self, suffix: str = "") -> list[str]:
+        # MA versions differ in namespace; try both variants.
+        # Common ones are player_queues/items, playerqueues/items, etc.
+        # But for 'get', we use the root player_queues/get.
+        if suffix == "/items":
+            return ["player_queues/items", "playerqueues/items"]
+        return ["player_queues/get", "playerqueues/get", "player_queues/get_queue"]
 
     def _is_stale_numeric_queue_id(self, queue_id: str) -> bool:
         return bool(re.fullmatch(r"-?\d+", queue_id.strip()))
@@ -847,8 +826,10 @@ class MusicAssistantClient:
 
     async def get_queue_items(self, queue_id: str, *, request_id: str = "", home_id: str = "", player_id: str = "") -> list[MAQueueItem]:
         """Return items in the specified MA queue."""
-        resp = await self._get_with_path_fallback(self._queue_paths(queue_id, "/items"))
-        items = resp.json()
+        items = await self._post_command_with_fallback(
+            self._queue_commands("/items"),
+            queue_id=queue_id,
+        )
         logger.info(json.dumps({
             "event": "ma_get_queue_items",
             "request_id": request_id,
@@ -862,11 +843,9 @@ class MusicAssistantClient:
     async def get_queue_item(self, queue_id: str, queue_item_id: str, *, request_id: str = "", home_id: str = "", player_id: str = "") -> Optional[MAQueueItem]:
         """Return a specific queue item by id, or ``None`` if unavailable."""
         try:
-            resp = await self._get_with_path_fallback(
-                self._queue_paths(queue_id, f"/items/{queue_item_id}"),
-            )
-            data = resp.json()
-            if isinstance(data, dict):
+            items = await self.get_queue_items(queue_id)
+            item = next((i for i in items if i.queue_item_id == queue_item_id), None)
+            if item:
                 logger.info(json.dumps({
                     "event": "ma_get_queue_item",
                     "request_id": request_id,
@@ -876,7 +855,7 @@ class MusicAssistantClient:
                     "queue_item_id": queue_item_id,
                     "found": True,
                 }))
-                return MAQueueItem.model_validate(data)
+                return item
         except MusicAssistantError:
             logger.warning(json.dumps({
                 "event": "ma_get_queue_item_failed",
@@ -891,8 +870,7 @@ class MusicAssistantClient:
 
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the currently-playing queue item, or ``None``."""
-        resp = await self._get_with_path_fallback(self._queue_paths(queue_id))
-        data = resp.json()
+        data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
         current = data.get("current_item")
         if current:
             return MAQueueItem.model_validate(current)
@@ -900,8 +878,7 @@ class MusicAssistantClient:
 
     async def get_next_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the next queue item, or ``None`` if queue is exhausted."""
-        resp = await self._get_with_path_fallback(self._queue_paths(queue_id))
-        data = resp.json()
+        data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
         next_item = data.get("next_item")
         if next_item:
             return MAQueueItem.model_validate(next_item)
@@ -933,7 +910,7 @@ class MusicAssistantClient:
                 try:
                     # Validate candidate queue id before selecting it; stale queue ids can
                     # linger in player state and cause hard 404 lookup failures.
-                    await self._get_with_path_fallback(self._queue_paths(queue_id))
+                    await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
                     logger.info(
                         "MA queue auto-discovery selected queue_id=%s player_id=%s candidate_source=%s",
                         queue_id,
@@ -957,10 +934,10 @@ class MusicAssistantClient:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="get_queue_state.request")
         resolved_queue_id = requested_queue_id or await self._resolve_default_queue_id()
         if not resolved_queue_id:
-            raise MusicAssistantError("No active queue available.")
+            raise MusicAssistantError(json.dumps({"code": "queue_empty", "message": "No active queue available."}))
 
         try:
-            resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
+            data = await self._post_command_with_fallback(self._queue_commands(), queue_id=resolved_queue_id)
         except MusicAssistantError as exc:
             if requested_queue_id and self._is_queue_not_found(exc):
                 logger.warning(
@@ -969,11 +946,10 @@ class MusicAssistantClient:
                 )
                 resolved_queue_id = await self._resolve_default_queue_id()
                 if not resolved_queue_id:
-                    raise MusicAssistantError("No active queue available.") from exc
-                resp = await self._get_with_path_fallback(self._queue_paths(resolved_queue_id))
+                    raise MusicAssistantError(json.dumps({"code": "queue_empty", "message": "No active queue available."})) from exc
+                data = await self._post_command_with_fallback(self._queue_commands(), queue_id=resolved_queue_id)
             else:
                 raise
-        data = resp.json()
         return {
             "queue_id": resolved_queue_id,
             "state": data.get("state", "unknown"),
