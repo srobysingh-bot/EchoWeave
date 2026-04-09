@@ -136,8 +136,12 @@ class MusicAssistantClient:
         """Call MA command API via POST /api with command payload."""
         client = await self._ensure_client()
         endpoint = self._api_endpoint()
-        body: dict[str, Any] = {"command": command}
-        body.update(payload)
+        message_id = str(int(__import__("time").time()))
+        body = {
+            "message_id": message_id,
+            "command": command,
+            "args": payload
+        }
 
         logger.info(
             "MA API request: method=POST path=%s command=%s payload=%s",

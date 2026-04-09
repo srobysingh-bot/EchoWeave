@@ -4,6 +4,13 @@ All notable changes to EchoWeave will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+ 
+## [0.3.20] - 2026-04-09
+ 
+### Fixed
+ 
+- Refactor Music Assistant Command API payload to use nested `args` and `message_id`.
+- Resolve 500 Internal Server Errors caused by flat command payloads in MA 2.x.
 
 ## [0.3.19] - 2026-04-09
 
