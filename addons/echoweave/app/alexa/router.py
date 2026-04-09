@@ -40,6 +40,12 @@ def _json_response(
     return JSONResponse(content=payload, status_code=status_code, media_type="application/json")
 
 
+@router.get("/intents")
+async def get_alexa_intents() -> JSONResponse:
+    """Dummy endpoint to acknowledge script pings and prevent 404s."""
+    return JSONResponse(content={"status": "ok", "message": "EchoWeave intents endpoint active."}, status_code=200)
+
+
 @router.post("")
 @router.post("/")
 async def alexa_webhook(request: Request) -> JSONResponse:

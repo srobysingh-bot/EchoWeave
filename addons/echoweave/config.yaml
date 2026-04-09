@@ -2,7 +2,7 @@ name: EchoWeave
 slug: echoweave
 description: Alexa bridge backend for Music Assistant
 url: "https://github.com/srobysingh-bot/EchoWeave"
-version: "0.3.21"
+version: "0.3.22"
 auto_update: true
 startup: services
 init: false
