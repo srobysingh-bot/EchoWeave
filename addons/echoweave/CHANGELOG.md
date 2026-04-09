@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.19] - 2026-04-09
+
+### Changed
+
+- Migrate Music Assistant client to the POST-based Command API for full 2.x compatibility.
+- Replace legacy REST GET endpoints for player queues with structured command payloads.
+- Implement robust namespace fallbacks (`player_queues` vs `playerqueues`) for version-agnostic queue resolution.
+- Bump add-on version to 0.3.19 to trigger fresh build/deployment.
+
 ## [0.3.18] - 2026-04-08
 
 ### Added
