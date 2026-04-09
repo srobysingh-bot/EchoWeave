@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
  
+## [0.3.23] - 2026-04-09
+ 
+### Fixed
+ 
+- Hardened queue item retrieval with null checks to prevent crashes when a queue is not found.
+- Resolved `AttributeError` in `get_current_queue_item` when source queue resolution fails.
+ 
 ## [0.3.22] - 2026-04-09
  
 ### Fixed

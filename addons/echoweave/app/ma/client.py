@@ -875,17 +875,19 @@ class MusicAssistantClient:
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the currently-playing queue item, or ``None``."""
         data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
-        current = data.get("current_item")
-        if current:
-            return MAQueueItem.model_validate(current)
+        if data and isinstance(data, dict):
+            current = data.get("current_item")
+            if current:
+                return MAQueueItem.model_validate(current)
         return None
 
     async def get_next_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the next queue item, or ``None`` if queue is exhausted."""
         data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
-        next_item = data.get("next_item")
-        if next_item:
-            return MAQueueItem.model_validate(next_item)
+        if data and isinstance(data, dict):
+            next_item = data.get("next_item")
+            if next_item:
+                return MAQueueItem.model_validate(next_item)
         return None
 
     async def _resolve_default_queue_id(self) -> str | None:
