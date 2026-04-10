@@ -4,6 +4,16 @@ All notable changes to EchoWeave will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [0.3.25] - 2026-04-10
+
+### Fixed
+
+- Replace `/ma/push-url` acknowledge-only stub with real playback handoff flow.
+- Convert incoming local MA flow URLs into public HTTPS playback URLs suitable for Alexa fetch behavior.
+- Resolve target player from push payload/flow context and dispatch MA play-media plus play commands.
+- Add structured handoff lifecycle logs for receipt, player resolution, URL construction, playback request dispatch/result, and failure reasons.
+
  
 ## [0.3.24] - 2026-04-10
  

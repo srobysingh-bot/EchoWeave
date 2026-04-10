@@ -1315,3 +1315,114 @@ class MusicAssistantClient:
             return False, "ma-unreachable"
         except MusicAssistantError as exc:
             return False, f"ma-error:{exc}"
+
+    async def handoff_playback_url(
+        self,
+        *,
+        player_id: str,
+        playback_url: str,
+        request_id: str = "",
+        home_id: str = "",
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Ask MA to play a direct URL on a specific player.
+
+        This is used by ``/ma/push-url`` handoff flow when MA provides a local
+        flow URL that must be converted into a public HTTPS URL for Alexa devices.
+        """
+        target_player_id = (player_id or "").strip()
+        target_url = (playback_url or "").strip()
+        if not target_player_id:
+            return False, "missing-player-id", {}
+        if not target_url:
+            return False, "missing-playback-url", {}
+
+        try:
+            players = await self.get_players()
+            target_player: dict[str, Any] | None = None
+            for player in players:
+                candidate_id = str(player.get("player_id") or "").strip()
+                if candidate_id == target_player_id:
+                    target_player = player
+                    break
+
+            if target_player is None:
+                return False, "player-not-found", {"player_id": target_player_id}
+
+            queue_candidates = [
+                target_player.get("active_queue"),
+                target_player.get("active_source"),
+                target_player.get("queue_id"),
+            ]
+            queue_id = ""
+            for candidate in queue_candidates:
+                if not candidate:
+                    continue
+                sanitized = self._sanitize_queue_id(str(candidate), source="handoff_playback_url.player")
+                if sanitized:
+                    queue_id = sanitized
+                    break
+
+            attempts: list[tuple[list[str], dict[str, Any], str]] = []
+            if queue_id:
+                attempts.append(
+                    (
+                        ["player_queues/play_media", "playerqueues/play_media"],
+                        {
+                            "queue_id": queue_id,
+                            "media_type": "url",
+                            "uri": target_url,
+                        },
+                        "queue_play_media",
+                    )
+                )
+
+            attempts.append(
+                (
+                    ["player_queues/play_media", "playerqueues/play_media"],
+                    {
+                        "player_id": target_player_id,
+                        "media_type": "url",
+                        "uri": target_url,
+                    },
+                    "player_play_media",
+                )
+            )
+
+            for commands, payload, mode in attempts:
+                try:
+                    response = await self._post_command_with_fallback(commands, **payload)
+                    # Send an explicit play command to reduce delayed-start edge cases.
+                    await self._post_command_with_fallback(["players/cmd/play"], player_id=target_player_id)
+                    return True, "playback-command-sent", {
+                        "mode": mode,
+                        "commands": commands,
+                        "payload": payload,
+                        "response": response,
+                        "player_id": target_player_id,
+                        "queue_id": queue_id,
+                    }
+                except MusicAssistantError as exc:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "ma_handoff_attempt_failed",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": target_player_id,
+                                "mode": mode,
+                                "error": str(exc),
+                            }
+                        )
+                    )
+
+            return False, "play-media-command-failed", {
+                "player_id": target_player_id,
+                "queue_id": queue_id,
+                "playback_url": target_url,
+            }
+        except MusicAssistantAuthError:
+            return False, "ma-auth-failed", {"player_id": target_player_id}
+        except MusicAssistantUnreachableError:
+            return False, "ma-unreachable", {"player_id": target_player_id}
+        except MusicAssistantError as exc:
+            return False, f"ma-error:{exc}", {"player_id": target_player_id}

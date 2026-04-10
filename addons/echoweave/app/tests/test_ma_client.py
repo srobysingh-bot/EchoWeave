@@ -259,6 +259,19 @@ async def test_get_queue_state_discards_404_requested_queue(mock_client: MusicAs
     await mock_client.close()
 
 
+@pytest.mark.anyio
+async def test_get_queue_state_raises_structured_queue_empty_when_no_active_queue(mock_client: MusicAssistantClient):
+    async def _fake_resolve_default_queue_id():
+        return None
+
+    mock_client._resolve_default_queue_id = _fake_resolve_default_queue_id
+
+    with pytest.raises(MusicAssistantError, match='"code": "queue_empty"'):
+        await mock_client.get_queue_state()
+
+    await mock_client.close()
+
+
 def test_normalize_query_strips_music_by_prefix(mock_client: MusicAssistantClient):
     assert mock_client._normalize_query("songs by arijit singh") == "arijit singh"
     assert mock_client._normalize_query("music by arijit singh") == "arijit singh"
@@ -317,3 +330,54 @@ async def test_resolve_play_request_uses_artist_top_tracks(mock_client: MusicAss
     assert payload["queue_item_id"] == "item-top"
     assert ("artists", "arijit singh") in searched
     assert ("tracks", "Arijit Singh") in searched
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_success(mock_client: MusicAssistantClient):
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    async def _fake_get_players():
+        return [
+            {
+                "player_id": "player-1",
+                "name": "Kitchen Echo",
+                "active_queue": "queue-1",
+            }
+        ]
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        calls.append((tuple(commands), payload))
+        return {"ok": True}
+
+    mock_client.get_players = _fake_get_players
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="player-1",
+        playback_url="https://stream.example.com/flow/s1/player-1/item1/song.mp3",
+        request_id="r1",
+        home_id="h1",
+    )
+
+    assert ok is True
+    assert message == "playback-command-sent"
+    assert details["player_id"] == "player-1"
+    assert calls[0][0] == ("player_queues/play_media", "playerqueues/play_media")
+    assert calls[1][0] == ("players/cmd/play",)
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_player_not_found(mock_client: MusicAssistantClient):
+    async def _fake_get_players():
+        return [{"player_id": "player-2", "name": "Bedroom Echo"}]
+
+    mock_client.get_players = _fake_get_players
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="missing-player",
+        playback_url="https://stream.example.com/flow/s1/player-1/item1/song.mp3",
+    )
+
+    assert ok is False
+    assert message == "player-not-found"
+    assert details["player_id"] == "missing-player"
