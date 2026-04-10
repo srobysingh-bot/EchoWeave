@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import quote, unquote, urlparse, urlunparse
 from uuid import uuid4
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -69,6 +70,100 @@ def _build_public_playback_url(stream_url: str, settings: Any) -> str:
     if not is_valid_alexa_stream_url(playback_url, allow_insecure=False):
         raise ValueError("public-url-not-alexa-compatible")
     return playback_url
+
+
+async def _request_worker_handoff(
+    *,
+    request_id: str,
+    settings: Any,
+    flow: dict[str, str],
+    player_id: str,
+    title: str,
+) -> dict[str, Any]:
+    worker_base_url = str(getattr(settings, "worker_base_url", "") or "").rstrip("/")
+    connector_id = str(getattr(settings, "connector_id", "") or "")
+    connector_secret = str(getattr(settings, "connector_secret", "") or "")
+    tenant_id = str(getattr(settings, "tenant_id", "") or "")
+    home_id = str(getattr(settings, "home_id", "") or "")
+
+    if not worker_base_url:
+        raise ValueError("missing-worker-base-url")
+    if not connector_id or not connector_secret or not tenant_id or not home_id:
+        raise ValueError("missing-connector-auth")
+
+    queue_id = str(flow.get("session_id") or "").strip()
+    queue_item_id = str(flow.get("item_id") or "").strip()
+    origin_stream_path = str(flow.get("path") or "").strip()
+    if not queue_id or not queue_item_id or not origin_stream_path:
+        raise ValueError("missing-flow-identifiers")
+
+    endpoint = f"{worker_base_url}/v1/connectors/playback-handoff"
+    payload = {
+        "request_id": request_id,
+        "connector_id": connector_id,
+        "connector_secret": connector_secret,
+        "tenant_id": tenant_id,
+        "home_id": home_id,
+        "player_id": player_id,
+        "queue_id": queue_id,
+        "queue_item_id": queue_item_id,
+        "origin_stream_path": origin_stream_path,
+        "title": title,
+    }
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "ma_worker_handoff_request_sent",
+                "request_id": request_id,
+                "worker_endpoint": endpoint,
+                "tenant_id": tenant_id,
+                "home_id": home_id,
+                "player_id": player_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "origin_stream_path": origin_stream_path,
+            }
+        )
+    )
+
+    timeout = httpx.Timeout(12.0, connect=6.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(endpoint, json=payload)
+
+    body_text = (response.text or "")[:4000]
+    logger.info(
+        json.dumps(
+            {
+                "event": "ma_worker_handoff_response",
+                "request_id": request_id,
+                "status": response.status_code,
+                "ok": response.is_success,
+                "body": body_text,
+            }
+        )
+    )
+
+    if not response.is_success:
+        raise ValueError(f"worker-handoff-failed:{response.status_code}")
+
+    data = response.json() if body_text else {}
+    stream_url = str((data or {}).get("stream_url") or "").strip()
+    if not stream_url:
+        raise ValueError("worker-handoff-missing-stream-url")
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "ma_worker_handoff_tokenized_url_created",
+                "request_id": request_id,
+                "stream_url": stream_url,
+                "playback_session_id": (data or {}).get("playback_session_id", ""),
+                "stream_token_id": (data or {}).get("stream_token_id", ""),
+            }
+        )
+    )
+    return data or {}
 
 
 def _resolve_player_id(player_hint: str, players: list[dict[str, Any]]) -> str:
@@ -231,6 +326,32 @@ async def ma_push_url(request: Request) -> JSONResponse:
         )
         return JSONResponse(content={"status": "error", "reason": "player_not_found"}, status_code=404)
 
+    final_playback_url = public_playback_url
+    worker_handoff_details: dict[str, Any] = {}
+    flow_title = str(body.get("title") or body.get("name") or flow.get("item_id", ""))
+    if getattr(config_service.settings, "is_edge_mode", False):
+        try:
+            worker_handoff_details = await _request_worker_handoff(
+                request_id=request_id,
+                settings=config_service.settings,
+                flow=flow,
+                player_id=resolved_player_id,
+                title=flow_title,
+            )
+            final_playback_url = str(worker_handoff_details.get("stream_url") or "").strip() or final_playback_url
+        except Exception as exc:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_push_url_failure",
+                        "request_id": request_id,
+                        "reason": "worker_handoff_failed",
+                        "details": str(exc),
+                    }
+                )
+            )
+            return JSONResponse(content={"status": "error", "reason": "worker_handoff_failed"}, status_code=502)
+
     logger.info(
         json.dumps(
             {
@@ -238,16 +359,30 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "request_id": request_id,
                 "player_id": resolved_player_id,
                 "public_playback_url": public_playback_url,
+                "final_playback_url": final_playback_url,
             }
         )
     )
     ok, message, details = await ma_client.handoff_playback_url(
         player_id=resolved_player_id,
-        playback_url=public_playback_url,
+        playback_url=final_playback_url,
         request_id=request_id,
         home_id=str(getattr(config_service.settings, "home_id", "") or ""),
+        require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),
     )
 
+    logger.info(
+        json.dumps(
+            {
+                "event": "ma_push_url_alexa_playback_session_start_result",
+                "request_id": request_id,
+                "ok": ok,
+                "message": message,
+                "details": details,
+                "worker_handoff": worker_handoff_details,
+            }
+        )
+    )
     logger.info(
         json.dumps(
             {
@@ -256,6 +391,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "ok": ok,
                 "message": message,
                 "details": details,
+                "worker_handoff": worker_handoff_details,
             }
         )
     )

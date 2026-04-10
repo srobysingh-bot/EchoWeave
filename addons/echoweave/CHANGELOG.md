@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.27] - 2026-04-10
+
+### Fixed
+
+- Add Worker connector playback handoff endpoint to mint tokenized ` /v1/stream/:token` URLs for MA push-url initiated sessions.
+- Update add-on `/ma/push-url` flow to request Worker handoff and use Worker tokenized URL as the final playback URL in edge mode.
+- Add structured worker handoff logs for request sent, response, tokenized URL creation, and session-start result.
+- Require direct URL playback success for edge-mode Alexa handoff and stop treating resume-only MA commands as primary playback proof.
+
 ## [0.3.26] - 2026-04-10
 
 ### Fixed

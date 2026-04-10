@@ -363,8 +363,8 @@ async def test_handoff_playback_url_success(mock_client: MusicAssistantClient):
     assert ok is True
     assert message == "playback-command-sent"
     assert details["player_id"] == "player-1"
-    assert details["mode"] == "queue_resume_play"
-    assert calls[1][0] == ("player_queues/play", "playerqueues/play")
+    assert details["mode"] == "queue_play_media"
+    assert calls[1][0] == ("player_queues/play_media", "playerqueues/play_media")
 
 
 @pytest.mark.anyio
@@ -450,6 +450,45 @@ async def test_handoff_playback_url_non_alexa_without_url_support_uses_resume(mo
     assert message == "playback-command-sent"
     assert details["mode"] == "queue_resume_play"
     assert all(call[0] != ("player_queues/play_media", "playerqueues/play_media") for call in calls)
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_require_direct_url_does_not_accept_resume(mock_client: MusicAssistantClient):
+    async def _fake_get_players():
+        return [
+            {
+                "player_id": "alexa-1",
+                "name": "Amit's Echo Spot",
+                "provider": "alexa_media",
+                "active_queue": "queue-a",
+            }
+        ]
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        # Simulate URL play failing, but resume succeeding.
+        if tuple(commands) == ("player_queues/get", "playerqueues/get", "player_queues/get_queue"):
+            return {
+                "state": "playing",
+                "elapsed_time": 1,
+                "current_item": {"name": "stale"},
+                "next_item": {},
+            }
+        if tuple(commands) == ("player_queues/play_media", "playerqueues/play_media"):
+            raise MusicAssistantError("MA API error: 500 (method=POST path=/api command=player_queues/play_media body=Internal server error)")
+        return {"ok": True}
+
+    mock_client.get_players = _fake_get_players
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="alexa-1",
+        playback_url="https://worker.example.com/v1/stream/token",
+        require_direct_url=True,
+    )
+
+    assert ok is False
+    assert message == "direct-url-play-failed"
+    assert details["player_id"] == "alexa-1"
 
 
 @pytest.mark.anyio

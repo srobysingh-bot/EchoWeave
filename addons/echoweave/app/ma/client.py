@@ -1324,6 +1324,7 @@ class MusicAssistantClient:
         playback_url: str,
         request_id: str = "",
         home_id: str = "",
+        require_direct_url: bool = False,
     ) -> tuple[bool, str, dict[str, Any]]:
         """Ask MA to play a direct URL on a specific player.
 
@@ -1475,24 +1476,50 @@ class MusicAssistantClient:
             attempts: list[tuple[list[str], dict[str, Any], str]] = []
             alexa_like = _is_alexa_like_player(target_player)
             direct_url_supported = _supports_direct_url_play(target_player)
+            resume_modes = {"player_resume_play", "queue_resume_play"}
             if alexa_like:
-                # Alexa queues typically already have a queued item from MA flow URL context;
-                # direct play_media URL calls can fail with 500 on Alexa providers.
+                # For Alexa push-url handoff we require a real URL-play trigger and
+                # never treat generic resume as proof of audible playback.
                 if queue_id:
                     attempts.append(
                         (
-                            ["player_queues/play", "playerqueues/play"],
-                            {"queue_id": queue_id},
-                            "queue_resume_play",
+                            ["player_queues/play_media", "playerqueues/play_media"],
+                            {
+                                "queue_id": queue_id,
+                                "media_type": "url",
+                                "uri": target_url,
+                            },
+                            "queue_play_media",
                         )
                     )
                 attempts.append(
                     (
-                        ["players/cmd/play"],
-                        {"player_id": target_player_id},
-                        "player_resume_play",
+                        ["player_queues/play_media", "playerqueues/play_media"],
+                        {
+                            "player_id": target_player_id,
+                            "media_type": "url",
+                            "uri": target_url,
+                        },
+                        "player_play_media",
                     )
                 )
+
+                if not require_direct_url:
+                    if queue_id:
+                        attempts.append(
+                            (
+                                ["player_queues/play", "playerqueues/play"],
+                                {"queue_id": queue_id},
+                                "queue_resume_play",
+                            )
+                        )
+                    attempts.append(
+                        (
+                            ["players/cmd/play"],
+                            {"player_id": target_player_id},
+                            "player_resume_play",
+                        )
+                    )
             else:
                 if direct_url_supported:
                     if queue_id:
@@ -1572,9 +1599,13 @@ class MusicAssistantClient:
                     )
                     response = await self._post_command_with_fallback(commands, **payload)
 
-                    if mode not in {"player_resume_play", "queue_resume_play"}:
+                    if mode not in resume_modes:
                         # Send an explicit play command to reduce delayed-start edge cases.
                         await self._post_command_with_fallback(["players/cmd/play"], player_id=target_player_id)
+
+                    if require_direct_url and mode in resume_modes:
+                        # Optional state sync only; do not treat resume-only as playback success.
+                        continue
 
                     return True, "playback-command-sent", {
                         "mode": mode,
@@ -1600,7 +1631,8 @@ class MusicAssistantClient:
                         )
                     )
 
-            return False, "play-media-command-failed", {
+            fail_message = "direct-url-play-failed" if require_direct_url else "play-media-command-failed"
+            return False, fail_message, {
                 "player_id": target_player_id,
                 "queue_id": queue_id,
                 "playback_url": target_url,
