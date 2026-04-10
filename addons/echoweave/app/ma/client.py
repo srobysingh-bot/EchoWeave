@@ -1322,6 +1322,7 @@ class MusicAssistantClient:
         *,
         player_id: str,
         playback_url: str,
+        preferred_queue_id: str = "",
         request_id: str = "",
         home_id: str = "",
         require_direct_url: bool = False,
@@ -1410,6 +1411,7 @@ class MusicAssistantClient:
             )
 
             queue_candidates = [
+                preferred_queue_id,
                 target_player.get("active_queue"),
                 target_player.get("active_source"),
                 target_player.get("queue_id"),
@@ -1458,6 +1460,7 @@ class MusicAssistantClient:
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": target_player_id,
+                        "preferred_queue_id": preferred_queue_id,
                         "reported_player_id": reported_player_id,
                         "reported_id": reported_id,
                         "queue_id": queue_id,
@@ -1503,6 +1506,17 @@ class MusicAssistantClient:
                         "player_play_media",
                     )
                 )
+                attempts.append(
+                    (
+                        ["players/play_media"],
+                        {
+                            "player_id": target_player_id,
+                            "media_type": "url",
+                            "uri": target_url,
+                        },
+                        "player_play_media_alt_namespace",
+                    )
+                )
 
                 if not require_direct_url:
                     if queue_id:
@@ -1544,6 +1558,17 @@ class MusicAssistantClient:
                                 "uri": target_url,
                             },
                             "player_play_media",
+                        )
+                    )
+                    attempts.append(
+                        (
+                            ["players/play_media"],
+                            {
+                                "player_id": target_player_id,
+                                "media_type": "url",
+                                "uri": target_url,
+                            },
+                            "player_play_media_alt_namespace",
                         )
                     )
 

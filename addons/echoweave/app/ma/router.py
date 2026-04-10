@@ -378,6 +378,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
     ok, message, details = await ma_client.handoff_playback_url(
         player_id=resolved_player_id,
         playback_url=final_playback_url,
+        preferred_queue_id=str(flow.get("session_id") or ""),
         request_id=request_id,
         home_id=str(getattr(config_service.settings, "home_id", "") or ""),
         require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),

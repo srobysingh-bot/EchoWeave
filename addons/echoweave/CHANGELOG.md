@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.28] - 2026-04-10
+
+### Fixed
+
+- Improve edge push-url playback handoff by passing MA flow `session_id` as preferred queue id when starting direct URL playback.
+- Add additional MA command fallback for direct URL playback using `players/play_media` namespace when `player_queues/play_media` fails.
+- Expand handoff diagnostics with `preferred_queue_id` so queue selection mismatches are visible in logs.
+
 ## [0.3.27] - 2026-04-10
 
 ### Fixed
