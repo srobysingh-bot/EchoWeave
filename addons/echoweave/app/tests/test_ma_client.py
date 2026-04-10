@@ -341,6 +341,7 @@ async def test_handoff_playback_url_success(mock_client: MusicAssistantClient):
             {
                 "player_id": "player-1",
                 "name": "Kitchen Echo",
+                "provider": "alexa_media",
                 "active_queue": "queue-1",
             }
         ]
@@ -362,8 +363,50 @@ async def test_handoff_playback_url_success(mock_client: MusicAssistantClient):
     assert ok is True
     assert message == "playback-command-sent"
     assert details["player_id"] == "player-1"
-    assert calls[0][0] == ("player_queues/play_media", "playerqueues/play_media")
-    assert calls[1][0] == ("players/cmd/play",)
+    assert details["mode"] == "queue_resume_play"
+    assert calls[1][0] == ("player_queues/play", "playerqueues/play")
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_non_alexa_uses_play_media(mock_client: MusicAssistantClient):
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    async def _fake_get_players():
+        return [
+            {
+                "player_id": "player-9",
+                "name": "Living Room Speaker",
+                "provider": "sonos",
+                "active_queue": "queue-9",
+            }
+        ]
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        calls.append((tuple(commands), payload))
+        if tuple(commands) == ("player_queues/get", "playerqueues/get", "player_queues/get_queue"):
+            return {
+                "state": "idle",
+                "elapsed_time": 0,
+                "current_item": {},
+                "next_item": {},
+            }
+        return {"ok": True}
+
+    mock_client.get_players = _fake_get_players
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="player-9",
+        playback_url="https://stream.example.com/flow/s1/player-9/item1/song.mp3",
+        request_id="r2",
+        home_id="h2",
+    )
+
+    assert ok is True
+    assert message == "playback-command-sent"
+    assert details["mode"] == "queue_play_media"
+    assert calls[1][0] == ("player_queues/play_media", "playerqueues/play_media")
+    assert calls[2][0] == ("players/cmd/play",)
 
 
 @pytest.mark.anyio
