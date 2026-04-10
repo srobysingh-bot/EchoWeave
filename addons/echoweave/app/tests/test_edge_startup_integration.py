@@ -43,6 +43,14 @@ def _set_edge_env(monkeypatch):
     monkeypatch.setenv("ECHOWEAVE_MA_TOKEN", "token")
 
 
+def _mock_edge_startup(monkeypatch):
+    async def _edge_start_noop(self):
+        return None
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda timeout=10: _FakeAsyncClient())
+    monkeypatch.setattr("app.edge.client_ws.EdgeConnectorWSClient.start", _edge_start_noop)
+
+
 def test_create_app_does_not_mount_alexa_router_in_edge_mode(monkeypatch):
     _set_edge_env(monkeypatch)
 
@@ -90,3 +98,19 @@ def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
         assert registry.get_optional("connector_heartbeat") is None
         assert registry.get_optional("edge_connector_ws") is not None
         assert captured_register_payload["json"]["origin_base_url"] == "https://origin.example.com"
+
+
+def test_ma_push_url_exempt_from_ui_auth(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    monkeypatch.setenv("ECHOWEAVE_UI_PASSWORD", "secret")
+
+    app = create_app()
+    with TestClient(app) as client:
+        # Non-exempt route should require basic auth.
+        status_resp = client.get("/status")
+        assert status_resp.status_code == 401
+
+        # /ma/push-url must remain callable by MA provider without UI credentials.
+        ma_resp = client.post("/ma/push-url", json={})
+        assert ma_resp.status_code != 401

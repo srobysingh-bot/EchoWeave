@@ -397,7 +397,7 @@ def create_app() -> FastAPI:
     class AdminAuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             # Exempt paths
-            if request.url.path.startswith(("/alexa", "/edge", "/health", "/static", "/debug")) or \
+            if request.url.path.startswith(("/alexa", "/edge", "/health", "/static", "/debug", "/ma/push-url")) or \
                "/debug/" in request.url.path:
                 return await call_next(request)
 
@@ -421,6 +421,13 @@ def create_app() -> FastAPI:
                         return await call_next(request)
                 except Exception:
                     pass
+
+            logger.info(
+                "AdminAuthMiddleware denied request: method=%s path=%s has_auth_header=%s",
+                request.method,
+                request.url.path,
+                bool(auth_header),
+            )
                     
             return Response(
                 content="Unauthorized", 

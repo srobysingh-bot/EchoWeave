@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.34] - 2026-04-10
+
+### Fixed
+
+- Exempt `POST /ma/push-url` from UI basic-auth middleware so MA Alexa provider callbacks are not blocked while UI auth remains enabled.
+- Add explicit auth-deny logs in `AdminAuthMiddleware` to surface path-level auth blocks quickly during runtime debugging.
+- Add regression test ensuring `/status` stays protected while `/ma/push-url` remains callable without UI credentials.
+
 ## [0.3.33] - 2026-04-10
 
 ### Fixed
