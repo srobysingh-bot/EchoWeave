@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.29] - 2026-04-10
+
+### Fixed
+
+- Prevent `/ma/push-url` crashes when MA queue-state command returns `null`/unexpected shape.
+- Convert queue-state shape mismatch into controlled `MusicAssistantError` so handoff flow can continue with fallback attempts.
+- Refresh MA client queue-state fallback test to align with command API mocks.
+
 ## [0.3.28] - 2026-04-10
 
 ### Fixed
