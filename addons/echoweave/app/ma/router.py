@@ -214,6 +214,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
         return JSONResponse(content={"status": "error", "reason": "invalid_json"}, status_code=400)
 
     stream_url = str(body.get("streamUrl") or body.get("stream_url") or "").strip()
+    probe_state = registry.get_optional("alexa_probe_state") or {}
     logger.info(
         json.dumps(
             {
@@ -221,6 +222,10 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "request_id": request_id,
                 "has_stream_url": bool(stream_url),
                 "stream_url": stream_url,
+                "last_alexa_probe": {
+                    "probe_id": probe_state.get("probe_id", ""),
+                    "probe_time": probe_state.get("probe_time", ""),
+                },
                 "app_version": APP_VERSION,
                 "build_id": APP_BUILD_ID,
                 "query_resolution_rev": APP_QUERY_RESOLUTION_REV,

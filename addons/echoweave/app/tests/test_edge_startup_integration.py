@@ -80,6 +80,23 @@ def test_edge_intents_probe_returns_provider_contract(monkeypatch):
     assert "play audio" in (resume_intent.get("utterances") or [])
 
 
+def test_edge_intents_probe_state_debug_endpoint(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+
+    app = create_app()
+    with TestClient(app) as client:
+        probe_resp = client.get("/alexa/intents")
+        assert probe_resp.status_code == 200
+
+        debug_resp = client.get("/debug/alexa-probe")
+        assert debug_resp.status_code == 200
+        payload = debug_resp.json()
+        assert payload.get("probe_id")
+        assert payload.get("probe_time")
+        assert isinstance(payload.get("payload", {}).get("intents"), list)
+
+
 def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
     _set_edge_env(monkeypatch)
 

@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, Request
@@ -346,6 +348,8 @@ def create_app() -> FastAPI:
         @_app.get("/alexa/intents/", tags=["alexa"])
         async def edge_alexa_intents_probe() -> JSONResponse:
             """Edge-mode contract response for MA Alexa provider /alexa/intents preload."""
+            probe_id = uuid4().hex
+            now_iso = datetime.now(timezone.utc).isoformat()
             payload = {
                 "invocationName": "music assistant",
                 "intents": [
@@ -360,7 +364,27 @@ def create_app() -> FastAPI:
                     {"intent": "AMAZON.PreviousIntent", "utterances": ["previous"]},
                 ],
             }
-            logger.info("edge_alexa_intents_probe response payload=%s", payload)
+            registry.register(
+                "alexa_probe_state",
+                {
+                    "probe_id": probe_id,
+                    "probe_time": now_iso,
+                    "payload": payload,
+                },
+            )
+            logger.info(
+                "edge_alexa_intents_probe probe_id=%s probe_time=%s response payload=%s",
+                probe_id,
+                now_iso,
+                payload,
+            )
+            logger.info(
+                "edge_alexa_intents_probe_contract_check probe_id=%s has_invocation=%s has_intents=%s has_playaudio=%s",
+                probe_id,
+                bool(payload.get("invocationName")),
+                isinstance(payload.get("intents"), list),
+                any((item or {}).get("intent") == "PlayAudio" for item in payload.get("intents", [])),
+            )
             return JSONResponse(content=payload, status_code=200)
     else:
         from app.alexa.router import router as alexa_router
@@ -473,6 +497,10 @@ def create_app() -> FastAPI:
     @_app.get("/debug/ping-ui", include_in_schema=False)
     async def debug_ping_ui() -> HTMLResponse:
         return HTMLResponse("<h1>EchoWeave UI OK</h1>")
+
+    @_app.get("/debug/alexa-probe", include_in_schema=False)
+    async def debug_alexa_probe_state() -> JSONResponse:
+        return JSONResponse(content=registry.get_optional("alexa_probe_state") or {})
 
     # Global exception handler
     @_app.exception_handler(EchoWeaveError)

@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.37] - 2026-04-10
+
+### Added
+
+- Add correlated probe diagnostics for edge Alexa preflight: each `/alexa/intents` response now emits `probe_id`, timestamp, and explicit contract-check logs.
+- Store latest probe state in registry and expose via `GET /debug/alexa-probe` for live debugging.
+- Include latest probe correlation (`probe_id`, `probe_time`) in `/ma/push-url` receipt logs to prove probe-to-push transition timing.
+- Add edge startup regression test for probe-state debug endpoint.
+
 ## [0.3.36] - 2026-04-10
 
 ### Fixed
