@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.30] - 2026-04-10
+
+### Fixed
+
+- Correct `/ma/push-url` MA handoff command payloads to match MA `player_queues/play_media` contract (`queue_id` + `media`) instead of legacy-only `media_type`/`uri` payloads.
+- Prioritize MA player identifiers for direct URL queue targeting and de-prioritize flow session IDs passed as preferred queue hints.
+- Add additional command payload variants (`media` string/list and no-option fallback) to improve compatibility across MA builds.
+- Extend MA client tests to validate queue targeting and direct URL payload shape for handoff playback.
+
 ## [0.3.29] - 2026-04-10
 
 ### Fixed

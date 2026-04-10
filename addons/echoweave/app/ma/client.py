@@ -1418,10 +1418,13 @@ class MusicAssistantClient:
             )
 
             queue_candidates = [
-                preferred_queue_id,
+                target_player.get("player_id"),
+                target_player_id,
+                target_player.get("id"),
                 target_player.get("active_queue"),
                 target_player.get("active_source"),
                 target_player.get("queue_id"),
+                preferred_queue_id,
             ]
             queue_id = ""
             for candidate in queue_candidates:
@@ -1487,32 +1490,61 @@ class MusicAssistantClient:
             alexa_like = _is_alexa_like_player(target_player)
             direct_url_supported = _supports_direct_url_play(target_player)
             resume_modes = {"player_resume_play", "queue_resume_play"}
-            if alexa_like:
-                # For Alexa push-url handoff we require a real URL-play trigger and
-                # never treat generic resume as proof of audible playback.
-                if queue_id:
-                    attempts.append(
-                        (
-                            ["player_queues/play_media", "playerqueues/play_media"],
-                            {
-                                "queue_id": queue_id,
-                                "media_type": "url",
-                                "uri": target_url,
-                            },
-                            "queue_play_media",
-                        )
-                    )
-                attempts.append(
+            command_queue_ids: list[str] = []
+            for candidate in [queue_id, reported_player_id, target_player_id, active_queue]:
+                normalized = str(candidate or "").strip()
+                if normalized and normalized not in command_queue_ids:
+                    command_queue_ids.append(normalized)
+
+            def _queue_media_payloads(selected_queue_id: str) -> list[tuple[dict[str, Any], str]]:
+                # Newer MA builds expect `media` on player_queues/play_media.
+                # Keep a legacy uri/media_type payload last for older variants.
+                return [
                     (
-                        ["player_queues/play_media", "playerqueues/play_media"],
                         {
-                            "player_id": target_player_id,
+                            "queue_id": selected_queue_id,
+                            "media": target_url,
+                            "option": "replace",
+                        },
+                        "queue_play_media",
+                    ),
+                    (
+                        {
+                            "queue_id": selected_queue_id,
+                            "media": [target_url],
+                            "option": "replace",
+                        },
+                        "queue_play_media_list",
+                    ),
+                    (
+                        {
+                            "queue_id": selected_queue_id,
+                            "media": target_url,
+                        },
+                        "queue_play_media_no_option",
+                    ),
+                    (
+                        {
+                            "queue_id": selected_queue_id,
                             "media_type": "url",
                             "uri": target_url,
                         },
-                        "player_play_media",
-                    )
-                )
+                        "queue_play_media_legacy",
+                    ),
+                ]
+
+            if alexa_like:
+                # For Alexa push-url handoff we require a real URL-play trigger and
+                # never treat generic resume as proof of audible playback.
+                for selected_queue_id in command_queue_ids:
+                    for payload, mode in _queue_media_payloads(selected_queue_id):
+                        attempts.append(
+                            (
+                                ["player_queues/play_media", "playerqueues/play_media"],
+                                payload,
+                                mode,
+                            )
+                        )
                 attempts.append(
                     (
                         ["players/play_media"],
@@ -1543,30 +1575,15 @@ class MusicAssistantClient:
                     )
             else:
                 if direct_url_supported:
-                    if queue_id:
-                        attempts.append(
-                            (
-                                ["player_queues/play_media", "playerqueues/play_media"],
-                                {
-                                    "queue_id": queue_id,
-                                    "media_type": "url",
-                                    "uri": target_url,
-                                },
-                                "queue_play_media",
+                    for selected_queue_id in command_queue_ids:
+                        for payload, mode in _queue_media_payloads(selected_queue_id):
+                            attempts.append(
+                                (
+                                    ["player_queues/play_media", "playerqueues/play_media"],
+                                    payload,
+                                    mode,
+                                )
                             )
-                        )
-
-                    attempts.append(
-                        (
-                            ["player_queues/play_media", "playerqueues/play_media"],
-                            {
-                                "player_id": target_player_id,
-                                "media_type": "url",
-                                "uri": target_url,
-                            },
-                            "player_play_media",
-                        )
-                    )
                     attempts.append(
                         (
                             ["players/play_media"],
