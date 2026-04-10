@@ -475,6 +475,8 @@ async def test_handoff_playback_url_require_direct_url_does_not_accept_resume(mo
             }
         if tuple(commands) == ("player_queues/play_media", "playerqueues/play_media"):
             raise MusicAssistantError("MA API error: 500 (method=POST path=/api command=player_queues/play_media body=Internal server error)")
+        if tuple(commands) == ("players/play_media",):
+            raise MusicAssistantError("MA API error: 500 (method=POST path=/api command=players/play_media body=Internal server error)")
         return {"ok": True}
 
     mock_client.get_players = _fake_get_players
