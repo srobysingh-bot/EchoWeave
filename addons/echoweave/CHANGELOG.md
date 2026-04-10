@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.26] - 2026-04-10
+
+### Fixed
+
+- Add runtime version/build metadata in `ma_push_url_received` logs to verify deployed add-on revision quickly.
+- Log full matched MA player object and internal identifier fields during push-url handoff diagnostics.
+- Preserve exact MA 5xx response body in command errors for actionable playback failure analysis.
+- Gate `play_media` URL playback by capability signals and prefer resume triggers for Alexa/Echo-style players to avoid unsupported command retries.
+
 ## [0.3.25] - 2026-04-10
 
 ### Fixed
