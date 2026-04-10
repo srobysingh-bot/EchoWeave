@@ -957,6 +957,13 @@ class MusicAssistantClient:
                 data = await self._post_command_with_fallback(self._queue_commands(), queue_id=resolved_queue_id)
             else:
                 raise
+        if not isinstance(data, dict):
+            logger.warning(
+                "get_queue_state received unexpected response type queue_id=%s type=%s",
+                resolved_queue_id,
+                type(data).__name__,
+            )
+            raise MusicAssistantError("MA API error: unexpected queue state response shape")
         return {
             "queue_id": resolved_queue_id,
             "state": data.get("state", "unknown"),

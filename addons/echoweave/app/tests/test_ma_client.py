@@ -272,6 +272,23 @@ async def test_get_queue_state_raises_structured_queue_empty_when_no_active_queu
     await mock_client.close()
 
 
+@pytest.mark.anyio
+async def test_get_queue_state_raises_on_unexpected_none_response(mock_client: MusicAssistantClient):
+    async def _fake_resolve_default_queue_id():
+        return "queue-live"
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        return None
+
+    mock_client._resolve_default_queue_id = _fake_resolve_default_queue_id
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    with pytest.raises(MusicAssistantError, match="unexpected queue state response shape"):
+        await mock_client.get_queue_state("queue-live")
+
+    await mock_client.close()
+
+
 def test_normalize_query_strips_music_by_prefix(mock_client: MusicAssistantClient):
     assert mock_client._normalize_query("songs by arijit singh") == "arijit singh"
     assert mock_client._normalize_query("music by arijit singh") == "arijit singh"
@@ -490,6 +507,37 @@ async def test_handoff_playback_url_require_direct_url_does_not_accept_resume(mo
 
     assert ok is False
     assert message == "direct-url-play-failed"
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_survives_unexpected_queue_state_shape(mock_client: MusicAssistantClient):
+    async def _fake_get_players():
+        return [
+            {
+                "player_id": "alexa-1",
+                "name": "Amit's Echo Spot",
+                "provider": "alexa_media",
+                "active_queue": "queue-a",
+            }
+        ]
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        if tuple(commands) == ("player_queues/get", "playerqueues/get", "player_queues/get_queue"):
+            return None
+        return {"ok": True}
+
+    mock_client.get_players = _fake_get_players
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="alexa-1",
+        playback_url="https://worker.example.com/v1/stream/token",
+        require_direct_url=True,
+    )
+
+    assert ok is True
+    assert message == "playback-command-sent"
+    assert details["player_id"] == "alexa-1"
     assert details["player_id"] == "alexa-1"
 
 
