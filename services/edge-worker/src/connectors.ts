@@ -1,4 +1,10 @@
-import { createPlaybackSession, getConnectorRecord, recordStreamToken, upsertConnectorRegistration } from "./db";
+import {
+  createPlaybackSession,
+  getConnectorRecord,
+  recordStreamToken,
+  resolveAlexaUserForHome,
+  upsertConnectorRegistration,
+} from "./db";
 import { hashConnectorSecret, issueSignedStreamToken, safeEqual } from "./security";
 import { ConnectorRegistrationPayload, Env } from "./types";
 
@@ -233,30 +239,89 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
     const streamToken = await issueSignedStreamToken(claims, env.STREAM_TOKEN_SIGNING_SECRET);
     const signature = streamToken.split(".")[1] ?? "";
 
-    await createPlaybackSession(env.ECHOWEAVE_DB, {
-      id: playbackSessionId,
-      tenant_id: tenantId,
-      home_id: homeId,
-      alexa_user_id: "ma_push_url",
-      queue_id: queueId,
-      queue_item_id: queueItemId,
-      metadata_json: JSON.stringify({
-        title: String(body.title ?? ""),
-        subtitle: String(body.subtitle ?? ""),
-        image_url: String(body.image_url ?? ""),
-        source: "ma_push_url",
-        player_id: playerId,
-      }),
-    });
+    const alexaUserId = await resolveAlexaUserForHome(env.ECHOWEAVE_DB, tenantId, homeId);
+    if (!alexaUserId) {
+      console.warn(
+        JSON.stringify({
+          event: "playback_handoff_failed",
+          request_id: requestId,
+          reason: "alexa_user_not_found_for_home",
+          tenant_id: tenantId,
+          home_id: homeId,
+        }),
+      );
+      return json({ error: "alexa-user-not-linked" }, 409);
+    }
 
-    await recordStreamToken(env.ECHOWEAVE_DB, {
-      id: tokenId,
-      tenant_id: tenantId,
-      home_id: homeId,
-      playback_session_id: playbackSessionId,
-      token_signature: signature,
-      expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
-    });
+    console.info(
+      JSON.stringify({
+        event: "playback_session_insert_attempt",
+        request_id: requestId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        chosen_alexa_user_id: alexaUserId,
+        queue_id: queueId,
+        queue_item_id: queueItemId,
+      }),
+    );
+
+    try {
+      await createPlaybackSession(env.ECHOWEAVE_DB, {
+        id: playbackSessionId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        alexa_user_id: alexaUserId,
+        queue_id: queueId,
+        queue_item_id: queueItemId,
+        metadata_json: JSON.stringify({
+          title: String(body.title ?? ""),
+          subtitle: String(body.subtitle ?? ""),
+          image_url: String(body.image_url ?? ""),
+          source: "ma_push_url",
+          player_id: playerId,
+        }),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        JSON.stringify({
+          event: "playback_session_insert_failed",
+          request_id: requestId,
+          tenant_id: tenantId,
+          home_id: homeId,
+          chosen_alexa_user_id: alexaUserId,
+          queue_id: queueId,
+          queue_item_id: queueItemId,
+          error: message,
+        }),
+      );
+      throw error;
+    }
+
+    try {
+      await recordStreamToken(env.ECHOWEAVE_DB, {
+        id: tokenId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        playback_session_id: playbackSessionId,
+        token_signature: signature,
+        expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        JSON.stringify({
+          event: "stream_token_insert_failed",
+          request_id: requestId,
+          tenant_id: tenantId,
+          home_id: homeId,
+          playback_session_id: playbackSessionId,
+          stream_token_id: tokenId,
+          error: message,
+        }),
+      );
+      throw error;
+    }
 
     const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
 
