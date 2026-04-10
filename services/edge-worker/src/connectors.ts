@@ -347,6 +347,17 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           runtime,
         }),
       );
+      if (message.toLowerCase().includes("foreign key constraint failed")) {
+        return json(
+          {
+            error: "alexa-user-not-linked",
+            reason: "playback_session_fk_failed",
+            chosen_alexa_user_id: alexaUserId,
+            runtime,
+          },
+          409,
+        );
+      }
       throw error;
     }
 
