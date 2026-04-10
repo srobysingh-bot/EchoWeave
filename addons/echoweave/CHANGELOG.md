@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.33] - 2026-04-10
+
+### Fixed
+
+- Update edge-mode `GET /alexa/intents` response to match Music Assistant Alexa provider contract (`invocationName` + `intents[]`) instead of generic probe payload.
+- Add explicit structured logging of the exact `/alexa/intents` response body for live contract verification.
+- Add regression test asserting edge-mode `/alexa/intents` contract payload fields.
+
 ## [0.3.32] - 2026-04-10
 
 ### Fixed

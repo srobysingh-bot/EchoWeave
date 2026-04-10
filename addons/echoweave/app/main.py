@@ -345,11 +345,20 @@ def create_app() -> FastAPI:
         @_app.get("/alexa/intents", tags=["alexa"])
         @_app.get("/alexa/intents/", tags=["alexa"])
         async def edge_alexa_intents_probe() -> JSONResponse:
-            """Edge-mode compatibility probe for MA integrations expecting /alexa/intents."""
-            return JSONResponse(
-                content={"status": "ok", "message": "EchoWeave edge intents probe active."},
-                status_code=200,
-            )
+            """Edge-mode contract response for MA Alexa provider /alexa/intents preload."""
+            payload = {
+                "invocationName": "music assistant",
+                "intents": [
+                    {"intent": "AMAZON.StopIntent", "utterances": ["stop"]},
+                    {"intent": "AMAZON.ResumeIntent", "utterances": ["resume"]},
+                    {"intent": "AMAZON.PauseIntent", "utterances": ["pause"]},
+                    {"intent": "AMAZON.NextIntent", "utterances": ["next"]},
+                    {"intent": "AMAZON.PreviousIntent", "utterances": ["previous"]},
+                ],
+                "bridgeMode": "edge",
+            }
+            logger.info("edge_alexa_intents_probe response payload=%s", payload)
+            return JSONResponse(content=payload, status_code=200)
     else:
         from app.alexa.router import router as alexa_router
 

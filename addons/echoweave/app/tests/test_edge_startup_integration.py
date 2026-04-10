@@ -54,6 +54,21 @@ def test_create_app_does_not_mount_alexa_router_in_edge_mode(monkeypatch):
     assert "/edge/stream/{queue_id}/{queue_item_id}" in paths
 
 
+def test_edge_intents_probe_returns_provider_contract(monkeypatch):
+    _set_edge_env(monkeypatch)
+
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/alexa/intents")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload.get("invocationName") == "music assistant"
+    intents = payload.get("intents")
+    assert isinstance(intents, list)
+    assert any(item.get("intent") == "AMAZON.ResumeIntent" for item in intents)
+
+
 def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
     _set_edge_env(monkeypatch)
 
