@@ -349,13 +349,13 @@ def create_app() -> FastAPI:
             payload = {
                 "invocationName": "music assistant",
                 "intents": [
+                    {"intent": "PlayAudio", "utterances": ["play audio", "start", "play"]},
                     {"intent": "AMAZON.StopIntent", "utterances": ["stop"]},
                     {"intent": "AMAZON.ResumeIntent", "utterances": ["resume"]},
                     {"intent": "AMAZON.PauseIntent", "utterances": ["pause"]},
                     {"intent": "AMAZON.NextIntent", "utterances": ["next"]},
                     {"intent": "AMAZON.PreviousIntent", "utterances": ["previous"]},
                 ],
-                "bridgeMode": "edge",
             }
             logger.info("edge_alexa_intents_probe response payload=%s", payload)
             return JSONResponse(content=payload, status_code=200)

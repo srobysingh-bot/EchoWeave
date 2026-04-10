@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.35] - 2026-04-10
+
+### Fixed
+
+- Refine edge-mode `GET /alexa/intents` payload to include custom `PlayAudio` intent utterances (`play audio`, `start`, `play`) required by MA Alexa flow expectations.
+- Remove non-essential `bridgeMode` field from `/alexa/intents` response to keep strict provider-compatible schema.
+- Keep explicit per-probe payload logging (`edge_alexa_intents_probe response payload=...`) for live contract verification.
+
 ## [0.3.34] - 2026-04-10
 
 ### Fixed

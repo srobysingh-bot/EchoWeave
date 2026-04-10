@@ -74,6 +74,8 @@ def test_edge_intents_probe_returns_provider_contract(monkeypatch):
     assert payload.get("invocationName") == "music assistant"
     intents = payload.get("intents")
     assert isinstance(intents, list)
+    assert payload.get("bridgeMode") is None
+    assert any(item.get("intent") == "PlayAudio" for item in intents)
     assert any(item.get("intent") == "AMAZON.ResumeIntent" for item in intents)
 
 
