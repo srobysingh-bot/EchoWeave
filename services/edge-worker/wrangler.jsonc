@@ -28,7 +28,12 @@
   ],
   "vars": {
     "ALEXA_SIGNATURE_ENFORCE": "true",
-    "STREAM_TOKEN_TTL_SECONDS": "300"
+    "STREAM_TOKEN_TTL_SECONDS": "300",
+    "BUILD_ID": "12eb45c",
+    "DEPLOY_SHA": "12eb45c1f5610a8185177a3da31bdb80a0d4f0e1",
+    "DEPLOY_ENV": "staging-20260328",
+    "WORKER_NAME": "echoweave-edge-worker",
+    "ECHOWEAVE_DB_ID": "5187f8a5-db84-45a2-8a05-2d315ee02cd8"
   },
   "observability": {
     "enabled": true

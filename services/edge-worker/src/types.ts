@@ -11,6 +11,10 @@ export interface Env {
   EDGE_ORIGIN_SHARED_SECRET: string;
   ALEXA_SIGNATURE_ENFORCE?: string;
   STREAM_TOKEN_TTL_SECONDS?: string;
+  DEPLOY_SHA?: string;
+  DEPLOY_ENV?: string;
+  WORKER_NAME?: string;
+  ECHOWEAVE_DB_ID?: string;
 }
 
 export interface AlexaRequestEnvelope {

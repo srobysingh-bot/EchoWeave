@@ -160,6 +160,13 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
     const originStreamPath = String(body.origin_stream_path ?? "").trim();
     const requestId = String(body.request_id ?? "");
     const playerId = String(body.player_id ?? "");
+    const runtime = {
+      build_id: env.BUILD_ID ?? "unknown",
+      deploy_sha: env.DEPLOY_SHA ?? "unknown",
+      deploy_env: env.DEPLOY_ENV ?? "unknown",
+      worker_name: env.WORKER_NAME ?? "unknown",
+      db_id: env.ECHOWEAVE_DB_ID ?? "unknown",
+    };
 
     console.info(
       JSON.stringify({
@@ -172,6 +179,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         queue_id: queueId,
         queue_item_id: queueItemId,
         origin_stream_path: originStreamPath,
+        runtime,
       }),
     );
 
@@ -181,9 +189,10 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           event: "playback_handoff_failed",
           request_id: requestId,
           reason: "missing_required_identifiers",
+          runtime,
         }),
       );
-      return badRequest("queue_id, queue_item_id, origin_stream_path are required");
+      return json({ error: "queue_id, queue_item_id, origin_stream_path are required", runtime }, 400);
     }
 
     const auth = await authenticateConnector({
@@ -203,9 +212,10 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           connector_id: connectorId,
           tenant_id: tenantId,
           home_id: homeId,
+          runtime,
         }),
       );
-      return json({ error: auth.error }, auth.status);
+      return json({ error: auth.error, runtime }, auth.status);
     }
 
     console.info(
@@ -218,6 +228,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         player_id: playerId,
         queue_id: queueId,
         queue_item_id: queueItemId,
+        runtime,
       }),
     );
 
@@ -248,10 +259,49 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           reason: "alexa_user_not_found_for_home",
           tenant_id: tenantId,
           home_id: homeId,
+          runtime,
         }),
       );
-      return json({ error: "alexa-user-not-linked" }, 409);
+      return json({ error: "alexa-user-not-linked", runtime }, 409);
     }
+
+    const alexaAccountExists = await env.ECHOWEAVE_DB.prepare(
+      `
+      SELECT 1 AS ok
+      FROM alexa_accounts
+      WHERE alexa_user_id = ? AND tenant_id = ? AND home_id = ?
+      LIMIT 1
+      `,
+    )
+      .bind(alexaUserId, tenantId, homeId)
+      .first<{ ok: number }>();
+
+    if (!alexaAccountExists || alexaAccountExists.ok !== 1) {
+      console.warn(
+        JSON.stringify({
+          event: "playback_handoff_failed",
+          request_id: requestId,
+          reason: "alexa_user_fk_verification_failed",
+          tenant_id: tenantId,
+          home_id: homeId,
+          chosen_alexa_user_id: alexaUserId,
+          runtime,
+        }),
+      );
+      return json({ error: "alexa-user-fk-verification-failed", runtime }, 409);
+    }
+
+    console.info(
+      JSON.stringify({
+        event: "playback_handoff_alexa_user_verified",
+        request_id: requestId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        chosen_alexa_user_id: alexaUserId,
+        exists: true,
+        runtime,
+      }),
+    );
 
     console.info(
       JSON.stringify({
@@ -262,6 +312,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         chosen_alexa_user_id: alexaUserId,
         queue_id: queueId,
         queue_item_id: queueItemId,
+        runtime,
       }),
     );
 
@@ -293,6 +344,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           queue_id: queueId,
           queue_item_id: queueItemId,
           error: message,
+          runtime,
         }),
       );
       throw error;
@@ -318,6 +370,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           playback_session_id: playbackSessionId,
           stream_token_id: tokenId,
           error: message,
+          runtime,
         }),
       );
       throw error;
@@ -335,6 +388,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         playback_session_id: playbackSessionId,
         stream_token_id: tokenId,
         stream_url: streamUrl,
+        runtime,
       }),
     );
 
@@ -343,6 +397,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
       stream_url: streamUrl,
+      runtime,
     };
     console.info(
       JSON.stringify({
@@ -351,18 +406,27 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         ok: true,
         playback_session_id: playbackSessionId,
         stream_token_id: tokenId,
+        runtime,
       }),
     );
     return json(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : "internal-error";
+    const runtime = {
+      build_id: env.BUILD_ID ?? "unknown",
+      deploy_sha: env.DEPLOY_SHA ?? "unknown",
+      deploy_env: env.DEPLOY_ENV ?? "unknown",
+      worker_name: env.WORKER_NAME ?? "unknown",
+      db_id: env.ECHOWEAVE_DB_ID ?? "unknown",
+    };
     console.error(
       JSON.stringify({
         event: "playback_handoff_failed",
         reason: "unhandled_exception",
         error: message,
+        runtime,
       }),
     );
-    return json({ error: message }, 500);
+    return json({ error: message, runtime }, 500);
   }
 }
