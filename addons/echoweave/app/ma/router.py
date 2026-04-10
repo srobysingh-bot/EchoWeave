@@ -132,6 +132,17 @@ async def _request_worker_handoff(
         response = await client.post(endpoint, json=payload)
 
     body_text = (response.text or "")[:4000]
+    runtime: dict[str, Any] = {}
+    if body_text:
+        try:
+            parsed_body = response.json()
+            if isinstance(parsed_body, dict):
+                maybe_runtime = parsed_body.get("runtime")
+                if isinstance(maybe_runtime, dict):
+                    runtime = maybe_runtime
+        except Exception:
+            runtime = {}
+
     logger.info(
         json.dumps(
             {
@@ -140,6 +151,7 @@ async def _request_worker_handoff(
                 "status": response.status_code,
                 "ok": response.is_success,
                 "body": body_text,
+                "worker_runtime": runtime,
             }
         )
     )
