@@ -26,6 +26,26 @@ async def ma_push_url(request: Request) -> JSONResponse:
     try:
         body = await request.json()
         logger.info("Received Music Assistant push-url: %s", body)
+        
+        # Diagnostic: Try to extract player and item info for "UI Interception" research
+        stream_url = body.get("streamUrl", "")
+        if "/flow/" in stream_url:
+            parts = stream_url.split("/")
+            # Standard MA flow URL: .../flow/session_id/player_id/item_id/...
+            try:
+                # Based on user logs: http://[local_ip]:8097/flow/rMNLf4yz/Amit's Echo Spot/e0efa3a074dc44428a9a10dceb8acf77/Amit's Echo Spot.flac
+                if len(parts) >= 8:
+                    player_id = parts[5]
+                    item_id = parts[6]
+                    import json as _json
+                    logger.info(_json.dumps({
+                        "event": "ma_push_url_parsed",
+                        "player_id": player_id,
+                        "item_id": item_id,
+                        "intercept_possible": True
+                    }))
+            except Exception:
+                pass
     except Exception:
         logger.warning("Received Music Assistant push-url with invalid JSON body.")
     

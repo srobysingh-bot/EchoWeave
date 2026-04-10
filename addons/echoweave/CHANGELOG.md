@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
  
+## [0.3.24] - 2026-04-10
+ 
+### Added
+ 
+- Enhanced `ma/push-url` logging to parse player and track IDs for UI playback interception research.
+- Added foundational logic for 'Magic UI Fix' to bridge local/public stream URL gap.
+ 
 ## [0.3.23] - 2026-04-09
  
 ### Fixed
