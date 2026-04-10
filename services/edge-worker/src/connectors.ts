@@ -129,108 +129,175 @@ export async function handleConnectorWebSocket(request: Request, env: Env): Prom
 
 export async function handleConnectorPlaybackHandoff(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
+  try {
+    const body = (await request.json()) as {
+      connector_id?: string;
+      connector_secret?: string;
+      tenant_id?: string;
+      home_id?: string;
+      queue_id?: string;
+      queue_item_id?: string;
+      origin_stream_path?: string;
+      title?: string;
+      subtitle?: string;
+      image_url?: string;
+      request_id?: string;
+      player_id?: string;
+    };
 
-  const body = (await request.json()) as {
-    connector_id?: string;
-    connector_secret?: string;
-    tenant_id?: string;
-    home_id?: string;
-    queue_id?: string;
-    queue_item_id?: string;
-    origin_stream_path?: string;
-    title?: string;
-    subtitle?: string;
-    image_url?: string;
-    request_id?: string;
-    player_id?: string;
-  };
+    const connectorId = String(body.connector_id ?? "").trim();
+    const connectorSecret = String(body.connector_secret ?? "").trim();
+    const tenantId = String(body.tenant_id ?? "").trim();
+    const homeId = String(body.home_id ?? "").trim();
+    const queueId = String(body.queue_id ?? "").trim();
+    const queueItemId = String(body.queue_item_id ?? "").trim();
+    const originStreamPath = String(body.origin_stream_path ?? "").trim();
+    const requestId = String(body.request_id ?? "");
+    const playerId = String(body.player_id ?? "");
 
-  const connectorId = String(body.connector_id ?? "").trim();
-  const connectorSecret = String(body.connector_secret ?? "").trim();
-  const tenantId = String(body.tenant_id ?? "").trim();
-  const homeId = String(body.home_id ?? "").trim();
-  const queueId = String(body.queue_id ?? "").trim();
-  const queueItemId = String(body.queue_item_id ?? "").trim();
-  const originStreamPath = String(body.origin_stream_path ?? "").trim();
+    console.info(
+      JSON.stringify({
+        event: "playback_handoff_request_received",
+        request_id: requestId,
+        connector_id: connectorId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        player_id: playerId,
+        queue_id: queueId,
+        queue_item_id: queueItemId,
+        origin_stream_path: originStreamPath,
+      }),
+    );
 
-  if (!queueId || !queueItemId || !originStreamPath) {
-    return badRequest("queue_id, queue_item_id, origin_stream_path are required");
-  }
+    if (!queueId || !queueItemId || !originStreamPath) {
+      console.warn(
+        JSON.stringify({
+          event: "playback_handoff_failed",
+          request_id: requestId,
+          reason: "missing_required_identifiers",
+        }),
+      );
+      return badRequest("queue_id, queue_item_id, origin_stream_path are required");
+    }
 
-  const auth = await authenticateConnector({
-    env,
-    connectorId,
-    connectorSecret,
-    tenantId,
-    homeId,
-  });
-  if (!auth.ok) return json({ error: auth.error }, auth.status);
+    const auth = await authenticateConnector({
+      env,
+      connectorId,
+      connectorSecret,
+      tenantId,
+      homeId,
+    });
+    if (!auth.ok) {
+      console.warn(
+        JSON.stringify({
+          event: "playback_handoff_failed",
+          request_id: requestId,
+          reason: auth.error,
+          status: auth.status,
+          connector_id: connectorId,
+          tenant_id: tenantId,
+          home_id: homeId,
+        }),
+      );
+      return json({ error: auth.error }, auth.status);
+    }
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const ttl = Number(env.STREAM_TOKEN_TTL_SECONDS ?? "300");
-  const playbackSessionId = crypto.randomUUID();
-  const tokenId = crypto.randomUUID();
-  const claims = {
-    token_id: tokenId,
-    tenant_id: tenantId,
-    home_id: homeId,
-    playback_session_id: playbackSessionId,
-    queue_id: queueId,
-    queue_item_id: queueItemId,
-    origin_stream_path: originStreamPath,
-    exp: nowSeconds + ttl,
-  };
+    console.info(
+      JSON.stringify({
+        event: "playback_handoff_home_resolved",
+        request_id: requestId,
+        connector_id: connectorId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        player_id: playerId,
+        queue_id: queueId,
+        queue_item_id: queueItemId,
+      }),
+    );
 
-  const streamToken = await issueSignedStreamToken(claims, env.STREAM_TOKEN_SIGNING_SECRET);
-  const signature = streamToken.split(".")[1] ?? "";
-
-  await createPlaybackSession(env.ECHOWEAVE_DB, {
-    id: playbackSessionId,
-    tenant_id: tenantId,
-    home_id: homeId,
-    alexa_user_id: "ma_push_url",
-    queue_id: queueId,
-    queue_item_id: queueItemId,
-    metadata_json: JSON.stringify({
-      title: String(body.title ?? ""),
-      subtitle: String(body.subtitle ?? ""),
-      image_url: String(body.image_url ?? ""),
-      source: "ma_push_url",
-      player_id: String(body.player_id ?? ""),
-    }),
-  });
-
-  await recordStreamToken(env.ECHOWEAVE_DB, {
-    id: tokenId,
-    tenant_id: tenantId,
-    home_id: homeId,
-    playback_session_id: playbackSessionId,
-    token_signature: signature,
-    expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
-  });
-
-  const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
-
-  console.info(
-    JSON.stringify({
-      event: "connector_playback_handoff_created",
-      request_id: String(body.request_id ?? ""),
-      connector_id: connectorId,
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const ttl = Number(env.STREAM_TOKEN_TTL_SECONDS ?? "300");
+    const playbackSessionId = crypto.randomUUID();
+    const tokenId = crypto.randomUUID();
+    const claims = {
+      token_id: tokenId,
       tenant_id: tenantId,
       home_id: homeId,
-      player_id: String(body.player_id ?? ""),
+      playback_session_id: playbackSessionId,
       queue_id: queueId,
       queue_item_id: queueItemId,
+      origin_stream_path: originStreamPath,
+      exp: nowSeconds + ttl,
+    };
+
+    const streamToken = await issueSignedStreamToken(claims, env.STREAM_TOKEN_SIGNING_SECRET);
+    const signature = streamToken.split(".")[1] ?? "";
+
+    await createPlaybackSession(env.ECHOWEAVE_DB, {
+      id: playbackSessionId,
+      tenant_id: tenantId,
+      home_id: homeId,
+      alexa_user_id: "ma_push_url",
+      queue_id: queueId,
+      queue_item_id: queueItemId,
+      metadata_json: JSON.stringify({
+        title: String(body.title ?? ""),
+        subtitle: String(body.subtitle ?? ""),
+        image_url: String(body.image_url ?? ""),
+        source: "ma_push_url",
+        player_id: playerId,
+      }),
+    });
+
+    await recordStreamToken(env.ECHOWEAVE_DB, {
+      id: tokenId,
+      tenant_id: tenantId,
+      home_id: homeId,
+      playback_session_id: playbackSessionId,
+      token_signature: signature,
+      expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
+    });
+
+    const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
+
+    console.info(
+      JSON.stringify({
+        event: "playback_handoff_token_created",
+        request_id: requestId,
+        connector_id: connectorId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        playback_session_id: playbackSessionId,
+        stream_token_id: tokenId,
+        stream_url: streamUrl,
+      }),
+    );
+
+    const payload = {
+      ok: true,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
       stream_url: streamUrl,
-    }),
-  );
-
-  return json({
-    ok: true,
-    playback_session_id: playbackSessionId,
-    stream_token_id: tokenId,
-    stream_url: streamUrl,
-  });
+    };
+    console.info(
+      JSON.stringify({
+        event: "playback_handoff_response_sent",
+        request_id: requestId,
+        ok: true,
+        playback_session_id: playbackSessionId,
+        stream_token_id: tokenId,
+      }),
+    );
+    return json(payload);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "internal-error";
+    console.error(
+      JSON.stringify({
+        event: "playback_handoff_failed",
+        reason: "unhandled_exception",
+        error: message,
+      }),
+    );
+    return json({ error: message }, 500);
+  }
 }
