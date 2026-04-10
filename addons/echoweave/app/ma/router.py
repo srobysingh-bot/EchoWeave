@@ -14,6 +14,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from app.core.constants import APP_BUILD_ID, APP_QUERY_RESOLUTION_REV, APP_VERSION
 from app.core.service_registry import registry
 from app.ma.stream_resolver import is_valid_alexa_stream_url
 
@@ -76,11 +77,12 @@ def _resolve_player_id(player_hint: str, players: list[dict[str, Any]]) -> str:
         return ""
     hint_lower = hint.lower()
     for player in players:
-        player_id = str(player.get("player_id") or "").strip()
+        player_id = str(player.get("player_id") or player.get("id") or "").strip()
         name = str(player.get("name") or "").strip()
         if player_id and (player_id == hint or player_id.lower() == hint_lower):
             return player_id
         if name and name.lower() == hint_lower:
+            # Friendly name is only a lookup hint; return internal id only.
             return player_id
     return ""
 
@@ -112,6 +114,9 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "request_id": request_id,
                 "has_stream_url": bool(stream_url),
                 "stream_url": stream_url,
+                "app_version": APP_VERSION,
+                "build_id": APP_BUILD_ID,
+                "query_resolution_rev": APP_QUERY_RESOLUTION_REV,
             }
         )
     )
@@ -179,6 +184,14 @@ async def ma_push_url(request: Request) -> JSONResponse:
     try:
         players = await ma_client.get_players()
         resolved_player_id = _resolve_player_id(player_hint, players)
+        matched_player = next(
+            (
+                player
+                for player in players
+                if str(player.get("player_id") or player.get("id") or "").strip() == resolved_player_id
+            ),
+            None,
+        )
         logger.info(
             json.dumps(
                 {
@@ -186,7 +199,10 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     "request_id": request_id,
                     "player_hint": player_hint,
                     "player_id": resolved_player_id,
+                    "matched_player": matched_player,
                 }
+            ,
+                default=str,
             )
         )
     except Exception as exc:

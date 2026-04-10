@@ -378,6 +378,7 @@ async def test_handoff_playback_url_non_alexa_uses_play_media(mock_client: Music
                 "name": "Living Room Speaker",
                 "provider": "sonos",
                 "active_queue": "queue-9",
+                "supported_features": ["play_media", "url"],
             }
         ]
 
@@ -407,6 +408,48 @@ async def test_handoff_playback_url_non_alexa_uses_play_media(mock_client: Music
     assert details["mode"] == "queue_play_media"
     assert calls[1][0] == ("player_queues/play_media", "playerqueues/play_media")
     assert calls[2][0] == ("players/cmd/play",)
+
+
+@pytest.mark.anyio
+async def test_handoff_playback_url_non_alexa_without_url_support_uses_resume(mock_client: MusicAssistantClient):
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+
+    async def _fake_get_players():
+        return [
+            {
+                "id": "player-10",
+                "name": "Plain Speaker",
+                "provider": "generic",
+                "active_queue": "queue-10",
+                "supported_features": ["pause", "resume"],
+            }
+        ]
+
+    async def _fake_post_command_with_fallback(commands, **payload):
+        calls.append((tuple(commands), payload))
+        if tuple(commands) == ("player_queues/get", "playerqueues/get", "player_queues/get_queue"):
+            return {
+                "state": "idle",
+                "elapsed_time": 0,
+                "current_item": {},
+                "next_item": {},
+            }
+        return {"ok": True}
+
+    mock_client.get_players = _fake_get_players
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
+
+    ok, message, details = await mock_client.handoff_playback_url(
+        player_id="player-10",
+        playback_url="https://stream.example.com/flow/s1/player-10/item1/song.mp3",
+        request_id="r3",
+        home_id="h3",
+    )
+
+    assert ok is True
+    assert message == "playback-command-sent"
+    assert details["mode"] == "queue_resume_play"
+    assert all(call[0] != ("player_queues/play_media", "playerqueues/play_media") for call in calls)
 
 
 @pytest.mark.anyio

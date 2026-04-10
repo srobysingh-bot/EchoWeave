@@ -1364,11 +1364,30 @@ class MusicAssistantClient:
             blob = " ".join(fields).lower()
             return ("alexa" in blob) or ("echo" in blob)
 
+        def _supports_direct_url_play(player: dict[str, Any]) -> bool:
+            caps_blob = " ".join(
+                [
+                    json.dumps(player.get("supported_features") or "", default=str),
+                    json.dumps(player.get("features") or "", default=str),
+                    json.dumps(player.get("media_types") or "", default=str),
+                    json.dumps(player.get("capabilities") or "", default=str),
+                ]
+            ).lower()
+            indicators = (
+                "play_media",
+                "media_play",
+                "url",
+                "http",
+                "web",
+                "stream",
+            )
+            return any(indicator in caps_blob for indicator in indicators)
+
         try:
             players = await self.get_players()
             target_player: dict[str, Any] | None = None
             for player in players:
-                candidate_id = str(player.get("player_id") or "").strip()
+                candidate_id = str(player.get("player_id") or player.get("id") or "").strip()
                 if candidate_id == target_player_id:
                     target_player = player
                     break
@@ -1376,7 +1395,7 @@ class MusicAssistantClient:
             if target_player is None:
                 return False, "player-not-found", {"player_id": target_player_id}
 
-            logger.debug(
+            logger.info(
                 json.dumps(
                     {
                         "event": "ma_handoff_player_match",
@@ -1426,6 +1445,10 @@ class MusicAssistantClient:
             powered = _as_bool(target_player.get("powered"), True)
             active_queue = str(target_player.get("active_queue") or target_player.get("active_source") or "")
             current_item = queue_state.get("current_item", {}) if isinstance(queue_state, dict) else {}
+            reported_player_id = str(target_player.get("player_id") or "")
+            reported_id = str(target_player.get("id") or "")
+            supported_features = target_player.get("supported_features") or target_player.get("features") or []
+            media_capabilities = target_player.get("media_types") or target_player.get("capabilities") or []
 
             logger.info(
                 json.dumps(
@@ -1434,12 +1457,16 @@ class MusicAssistantClient:
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": target_player_id,
+                        "reported_player_id": reported_player_id,
+                        "reported_id": reported_id,
                         "queue_id": queue_id,
                         "provider": provider,
                         "available": available,
                         "powered": powered,
                         "active_queue": active_queue,
                         "current_item": current_item,
+                        "supported_features": supported_features,
+                        "media_capabilities": media_capabilities,
                     },
                     default=str,
                 )
@@ -1447,6 +1474,7 @@ class MusicAssistantClient:
 
             attempts: list[tuple[list[str], dict[str, Any], str]] = []
             alexa_like = _is_alexa_like_player(target_player)
+            direct_url_supported = _supports_direct_url_play(target_player)
             if alexa_like:
                 # Alexa queues typically already have a queued item from MA flow URL context;
                 # direct play_media URL calls can fail with 500 on Alexa providers.
@@ -1466,28 +1494,47 @@ class MusicAssistantClient:
                     )
                 )
             else:
-                if queue_id:
+                if direct_url_supported:
+                    if queue_id:
+                        attempts.append(
+                            (
+                                ["player_queues/play_media", "playerqueues/play_media"],
+                                {
+                                    "queue_id": queue_id,
+                                    "media_type": "url",
+                                    "uri": target_url,
+                                },
+                                "queue_play_media",
+                            )
+                        )
+
                     attempts.append(
                         (
                             ["player_queues/play_media", "playerqueues/play_media"],
                             {
-                                "queue_id": queue_id,
+                                "player_id": target_player_id,
                                 "media_type": "url",
                                 "uri": target_url,
                             },
-                            "queue_play_media",
+                            "player_play_media",
                         )
                     )
 
+                # Always include resume path so we avoid hard-failing on providers
+                # where direct URL play is unsupported or intermittently broken.
+                if queue_id:
+                    attempts.append(
+                        (
+                            ["player_queues/play", "playerqueues/play"],
+                            {"queue_id": queue_id},
+                            "queue_resume_play",
+                        )
+                    )
                 attempts.append(
                     (
-                        ["player_queues/play_media", "playerqueues/play_media"],
-                        {
-                            "player_id": target_player_id,
-                            "media_type": "url",
-                            "uri": target_url,
-                        },
-                        "player_play_media",
+                        ["players/cmd/play"],
+                        {"player_id": target_player_id},
+                        "player_resume_play",
                     )
                 )
 
@@ -1501,6 +1548,7 @@ class MusicAssistantClient:
                         "queue_id": queue_id,
                         "provider": provider,
                         "alexa_like": alexa_like,
+                        "direct_url_supported": direct_url_supported,
                         "attempt_modes": [mode for _, _, mode in attempts],
                     }
                 )
