@@ -341,6 +341,15 @@ def create_app() -> FastAPI:
         from app.edge.stream_router import router as edge_stream_router
 
         _app.include_router(edge_stream_router)
+
+        @_app.get("/alexa/intents", tags=["alexa"])
+        @_app.get("/alexa/intents/", tags=["alexa"])
+        async def edge_alexa_intents_probe() -> JSONResponse:
+            """Edge-mode compatibility probe for MA integrations expecting /alexa/intents."""
+            return JSONResponse(
+                content={"status": "ok", "message": "EchoWeave edge intents probe active."},
+                status_code=200,
+            )
     else:
         from app.alexa.router import router as alexa_router
 

@@ -12,6 +12,9 @@ class _FakeResponse:
         self.text = text
 
 
+captured_register_payload = {}
+
+
 class _FakeAsyncClient:
     async def __aenter__(self):
         return self
@@ -20,6 +23,9 @@ class _FakeAsyncClient:
         return False
 
     async def post(self, url, json, headers):
+        captured_register_payload["url"] = url
+        captured_register_payload["json"] = json
+        captured_register_payload["headers"] = headers
         return _FakeResponse(200, "ok")
 
 
@@ -44,6 +50,7 @@ def test_create_app_does_not_mount_alexa_router_in_edge_mode(monkeypatch):
     paths = {route.path for route in app.routes}
 
     assert "/alexa" not in paths
+    assert "/alexa/intents" in paths
     assert "/edge/stream/{queue_id}/{queue_item_id}" in paths
 
 
@@ -67,3 +74,4 @@ def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
 
         assert registry.get_optional("connector_heartbeat") is None
         assert registry.get_optional("edge_connector_ws") is not None
+        assert captured_register_payload["json"]["origin_base_url"] == "https://origin.example.com"

@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.32] - 2026-04-10
+
+### Fixed
+
+- Expose `GET /alexa/intents` compatibility probe in edge mode so Music Assistant preflight checks no longer fail with 404 before `/ma/push-url` callback flow.
+- Keep full `/alexa` webhook unmounted in edge mode while still returning `200` for probe path.
+- Add edge startup regression assertion for `/alexa/intents` route presence.
+
 ## [0.3.31] - 2026-04-10
 
 ### Fixed
