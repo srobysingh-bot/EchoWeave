@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.36] - 2026-04-10
+
+### Fixed
+
+- Expand edge `/alexa/intents` `AMAZON.ResumeIntent` utterances to include `play audio`, `start`, and `play` so MA `player.play` path can issue a playback-starting phrase instead of resume-only wording.
+- Keep `PlayAudio` custom intent declaration and probe payload logging for end-to-end contract tracing.
+
 ## [0.3.35] - 2026-04-10
 
 ### Fixed

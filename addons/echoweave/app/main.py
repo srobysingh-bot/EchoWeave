@@ -351,7 +351,10 @@ def create_app() -> FastAPI:
                 "intents": [
                     {"intent": "PlayAudio", "utterances": ["play audio", "start", "play"]},
                     {"intent": "AMAZON.StopIntent", "utterances": ["stop"]},
-                    {"intent": "AMAZON.ResumeIntent", "utterances": ["resume"]},
+                    {
+                        "intent": "AMAZON.ResumeIntent",
+                        "utterances": ["play audio", "start", "play", "resume"],
+                    },
                     {"intent": "AMAZON.PauseIntent", "utterances": ["pause"]},
                     {"intent": "AMAZON.NextIntent", "utterances": ["next"]},
                     {"intent": "AMAZON.PreviousIntent", "utterances": ["previous"]},

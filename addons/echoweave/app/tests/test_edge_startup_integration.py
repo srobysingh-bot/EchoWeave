@@ -76,7 +76,8 @@ def test_edge_intents_probe_returns_provider_contract(monkeypatch):
     assert isinstance(intents, list)
     assert payload.get("bridgeMode") is None
     assert any(item.get("intent") == "PlayAudio" for item in intents)
-    assert any(item.get("intent") == "AMAZON.ResumeIntent" for item in intents)
+    resume_intent = next((item for item in intents if item.get("intent") == "AMAZON.ResumeIntent"), {})
+    assert "play audio" in (resume_intent.get("utterances") or [])
 
 
 def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
