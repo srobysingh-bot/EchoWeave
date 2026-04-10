@@ -384,6 +384,44 @@ async def ma_push_url(request: Request) -> JSONResponse:
         require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),
     )
 
+    if (
+        not ok
+        and message == "direct-url-play-failed"
+        and final_playback_url != public_playback_url
+    ):
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "ma_push_url_retry_with_public_url",
+                    "request_id": request_id,
+                    "player_id": resolved_player_id,
+                    "failed_playback_url": final_playback_url,
+                    "retry_playback_url": public_playback_url,
+                }
+            )
+        )
+        retry_ok, retry_message, retry_details = await ma_client.handoff_playback_url(
+            player_id=resolved_player_id,
+            playback_url=public_playback_url,
+            preferred_queue_id=str(flow.get("session_id") or ""),
+            request_id=request_id,
+            home_id=str(getattr(config_service.settings, "home_id", "") or ""),
+            require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),
+        )
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ma_push_url_retry_with_public_url_result",
+                    "request_id": request_id,
+                    "ok": retry_ok,
+                    "message": retry_message,
+                    "details": retry_details,
+                }
+            )
+        )
+        if retry_ok:
+            ok, message, details = retry_ok, retry_message, retry_details
+
     logger.info(
         json.dumps(
             {

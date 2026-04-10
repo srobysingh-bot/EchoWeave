@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.31] - 2026-04-10
+
+### Fixed
+
+- Add `/ma/push-url` retry path: if MA direct URL playback fails with Worker tokenized stream URL, retry once with the public tunnel playback URL.
+- Add structured retry lifecycle logs (`ma_push_url_retry_with_public_url` and result) to make fallback outcomes explicit during runtime debugging.
+
 ## [0.3.30] - 2026-04-10
 
 ### Fixed
