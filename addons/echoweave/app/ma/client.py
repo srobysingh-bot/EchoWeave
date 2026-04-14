@@ -7,6 +7,7 @@ structured error handling.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import json
 import re
@@ -52,6 +53,14 @@ class MusicAssistantClient:
         self._token = token
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
+        self._handoff_player_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_handoff_player_lock(self, player_id: str) -> asyncio.Lock:
+        lock = self._handoff_player_locks.get(player_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._handoff_player_locks[player_id] = lock
+        return lock
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -1346,6 +1355,20 @@ class MusicAssistantClient:
         if not target_url:
             return False, "missing-playback-url", {}
 
+        handoff_lock = self._get_handoff_player_lock(target_player_id)
+        if handoff_lock.locked():
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_handoff_debounced_inflight",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": target_player_id,
+                    }
+                )
+            )
+            return False, "handoff-in-flight", {"player_id": target_player_id}
+
         def _as_bool(value: Any, default: bool = True) -> bool:
             if isinstance(value, bool):
                 return value
@@ -1392,189 +1415,151 @@ class MusicAssistantClient:
             )
             return any(indicator in caps_blob for indicator in indicators)
 
-        try:
-            players = await self.get_players()
-            target_player: dict[str, Any] | None = None
-            for player in players:
-                candidate_id = str(player.get("player_id") or player.get("id") or "").strip()
-                if candidate_id == target_player_id:
-                    target_player = player
-                    break
+        async with handoff_lock:
+            try:
+                players = await self.get_players()
+                target_player: dict[str, Any] | None = None
+                for player in players:
+                    candidate_id = str(player.get("player_id") or player.get("id") or "").strip()
+                    if candidate_id == target_player_id:
+                        target_player = player
+                        break
 
-            if target_player is None:
-                return False, "player-not-found", {"player_id": target_player_id}
+                if target_player is None:
+                    return False, "player-not-found", {"player_id": target_player_id}
 
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "ma_handoff_player_match",
-                        "request_id": request_id,
-                        "home_id": home_id,
-                        "player_id": target_player_id,
-                        "player": target_player,
-                    },
-                    default=str,
-                )
-            )
-
-            queue_candidates = [
-                target_player.get("player_id"),
-                target_player_id,
-                target_player.get("id"),
-                target_player.get("active_queue"),
-                target_player.get("active_source"),
-                target_player.get("queue_id"),
-                preferred_queue_id,
-            ]
-            queue_id = ""
-            for candidate in queue_candidates:
-                if not candidate:
-                    continue
-                sanitized = self._sanitize_queue_id(str(candidate), source="handoff_playback_url.player")
-                if sanitized:
-                    queue_id = sanitized
-                    break
-
-            queue_state: dict[str, Any] = {}
-            if queue_id:
-                try:
-                    queue_state = await self.get_queue_state(queue_id)
-                except MusicAssistantError as exc:
-                    logger.debug(
-                        json.dumps(
-                            {
-                                "event": "ma_handoff_queue_state_unavailable",
-                                "request_id": request_id,
-                                "home_id": home_id,
-                                "player_id": target_player_id,
-                                "queue_id": queue_id,
-                                "error": str(exc),
-                            }
-                        )
-                    )
-
-            provider = str(target_player.get("provider") or target_player.get("source") or "")
-            available = _as_bool(target_player.get("available"), True)
-            powered = _as_bool(target_player.get("powered"), True)
-            active_queue = str(target_player.get("active_queue") or target_player.get("active_source") or "")
-            current_item = queue_state.get("current_item", {}) if isinstance(queue_state, dict) else {}
-            reported_player_id = str(target_player.get("player_id") or "")
-            reported_id = str(target_player.get("id") or "")
-            supported_features = target_player.get("supported_features") or target_player.get("features") or []
-            media_capabilities = target_player.get("media_types") or target_player.get("capabilities") or []
-
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "ma_handoff_player_diagnostics",
-                        "request_id": request_id,
-                        "home_id": home_id,
-                        "player_id": target_player_id,
-                        "preferred_queue_id": preferred_queue_id,
-                        "reported_player_id": reported_player_id,
-                        "reported_id": reported_id,
-                        "queue_id": queue_id,
-                        "provider": provider,
-                        "available": available,
-                        "powered": powered,
-                        "active_queue": active_queue,
-                        "current_item": current_item,
-                        "supported_features": supported_features,
-                        "media_capabilities": media_capabilities,
-                    },
-                    default=str,
-                )
-            )
-
-            attempts: list[tuple[list[str], dict[str, Any], str]] = []
-            alexa_like = _is_alexa_like_player(target_player)
-            direct_url_supported = _supports_direct_url_play(target_player)
-            resume_modes = {"player_resume_play", "queue_resume_play"}
-            command_queue_ids: list[str] = []
-            for candidate in [queue_id, reported_player_id, target_player_id, active_queue]:
-                normalized = str(candidate or "").strip()
-                if normalized and normalized not in command_queue_ids:
-                    command_queue_ids.append(normalized)
-
-            def _queue_media_payloads(selected_queue_id: str) -> list[tuple[dict[str, Any], str]]:
-                # Newer MA builds expect `media` on player_queues/play_media.
-                # Keep a legacy uri/media_type payload last for older variants.
-                return [
-                    (
+                logger.info(
+                    json.dumps(
                         {
-                            "queue_id": selected_queue_id,
-                            "media": target_url,
-                            "option": "replace",
-                        },
-                        "queue_play_media",
-                    ),
-                    (
-                        {
-                            "queue_id": selected_queue_id,
-                            "media": [target_url],
-                            "option": "replace",
-                        },
-                        "queue_play_media_list",
-                    ),
-                    (
-                        {
-                            "queue_id": selected_queue_id,
-                            "media": target_url,
-                        },
-                        "queue_play_media_no_option",
-                    ),
-                    (
-                        {
-                            "queue_id": selected_queue_id,
-                            "media_type": "url",
-                            "uri": target_url,
-                        },
-                        "queue_play_media_legacy",
-                    ),
-                ]
-
-            if alexa_like:
-                # For Alexa push-url handoff we require a real URL-play trigger and
-                # never treat generic resume as proof of audible playback.
-                for selected_queue_id in command_queue_ids:
-                    for payload, mode in _queue_media_payloads(selected_queue_id):
-                        attempts.append(
-                            (
-                                ["player_queues/play_media", "playerqueues/play_media"],
-                                payload,
-                                mode,
-                            )
-                        )
-                attempts.append(
-                    (
-                        ["players/play_media"],
-                        {
+                            "event": "ma_handoff_player_match",
+                            "request_id": request_id,
+                            "home_id": home_id,
                             "player_id": target_player_id,
-                            "media_type": "url",
-                            "uri": target_url,
+                            "player": target_player,
                         },
-                        "player_play_media_alt_namespace",
+                        default=str,
                     )
                 )
 
-                if not require_direct_url:
-                    if queue_id:
-                        attempts.append(
-                            (
-                                ["player_queues/play", "playerqueues/play"],
-                                {"queue_id": queue_id},
-                                "queue_resume_play",
+                queue_candidates = [
+                    preferred_queue_id,
+                    target_player.get("active_queue"),
+                    target_player.get("active_source"),
+                    target_player.get("queue_id"),
+                    target_player.get("player_id"),
+                    target_player_id,
+                    target_player.get("id"),
+                ]
+                queue_id = ""
+                for candidate in queue_candidates:
+                    if not candidate:
+                        continue
+                    sanitized = self._sanitize_queue_id(str(candidate), source="handoff_playback_url.player")
+                    if sanitized:
+                        queue_id = sanitized
+                        break
+
+                queue_state: dict[str, Any] = {}
+                if queue_id:
+                    try:
+                        queue_state = await self.get_queue_state(queue_id)
+                    except MusicAssistantError as exc:
+                        logger.debug(
+                            json.dumps(
+                                {
+                                    "event": "ma_handoff_queue_state_unavailable",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "queue_id": queue_id,
+                                    "error": str(exc),
+                                }
                             )
                         )
-                    attempts.append(
-                        (
-                            ["players/cmd/play"],
-                            {"player_id": target_player_id},
-                            "player_resume_play",
-                        )
+
+                provider = str(target_player.get("provider") or target_player.get("source") or "")
+                available = _as_bool(target_player.get("available"), True)
+                powered = _as_bool(target_player.get("powered"), True)
+                active_queue = str(target_player.get("active_queue") or target_player.get("active_source") or "")
+                current_item = queue_state.get("current_item", {}) if isinstance(queue_state, dict) else {}
+                reported_player_id = str(target_player.get("player_id") or "")
+                reported_id = str(target_player.get("id") or "")
+                supported_features = target_player.get("supported_features") or target_player.get("features") or []
+                media_capabilities = target_player.get("media_types") or target_player.get("capabilities") or []
+
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_handoff_player_diagnostics",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": target_player_id,
+                            "preferred_queue_id": preferred_queue_id,
+                            "reported_player_id": reported_player_id,
+                            "reported_id": reported_id,
+                            "queue_id": queue_id,
+                            "provider": provider,
+                            "available": available,
+                            "powered": powered,
+                            "active_queue": active_queue,
+                            "current_item": current_item,
+                            "supported_features": supported_features,
+                            "media_capabilities": media_capabilities,
+                        },
+                        default=str,
                     )
-            else:
-                if direct_url_supported:
+                )
+
+                attempts: list[tuple[list[str], dict[str, Any], str]] = []
+                alexa_like = _is_alexa_like_player(target_player)
+                direct_url_supported = _supports_direct_url_play(target_player)
+                resume_modes = {"player_resume_play", "queue_resume_play"}
+                command_queue_ids: list[str] = []
+                for candidate in [queue_id, reported_player_id, target_player_id, active_queue]:
+                    normalized = str(candidate or "").strip()
+                    if normalized and normalized not in command_queue_ids:
+                        command_queue_ids.append(normalized)
+
+                def _queue_media_payloads(selected_queue_id: str) -> list[tuple[dict[str, Any], str]]:
+                    # Newer MA builds expect `media` on player_queues/play_media.
+                    # Keep a legacy uri/media_type payload last for older variants.
+                    return [
+                        (
+                            {
+                                "queue_id": selected_queue_id,
+                                "media": target_url,
+                                "option": "replace",
+                            },
+                            "queue_play_media",
+                        ),
+                        (
+                            {
+                                "queue_id": selected_queue_id,
+                                "media": [target_url],
+                                "option": "replace",
+                            },
+                            "queue_play_media_list",
+                        ),
+                        (
+                            {
+                                "queue_id": selected_queue_id,
+                                "media": target_url,
+                            },
+                            "queue_play_media_no_option",
+                        ),
+                        (
+                            {
+                                "queue_id": selected_queue_id,
+                                "media_type": "url",
+                                "uri": target_url,
+                            },
+                            "queue_play_media_legacy",
+                        ),
+                    ]
+
+                if alexa_like:
+                    # For Alexa push-url handoff we require a real URL-play trigger and
+                    # never treat generic resume as proof of audible playback.
                     for selected_queue_id in command_queue_ids:
                         for payload, mode in _queue_media_payloads(selected_queue_id):
                             attempts.append(
@@ -1596,99 +1581,232 @@ class MusicAssistantClient:
                         )
                     )
 
-                # Always include resume path so we avoid hard-failing on providers
-                # where direct URL play is unsupported or intermittently broken.
-                if queue_id:
+                    if not require_direct_url:
+                        if queue_id:
+                            attempts.append(
+                                (
+                                    ["player_queues/play", "playerqueues/play"],
+                                    {"queue_id": queue_id},
+                                    "queue_resume_play",
+                                )
+                            )
+                        attempts.append(
+                            (
+                                ["players/cmd/play"],
+                                {"player_id": target_player_id},
+                                "player_resume_play",
+                            )
+                        )
+                else:
+                    if direct_url_supported:
+                        for selected_queue_id in command_queue_ids:
+                            for payload, mode in _queue_media_payloads(selected_queue_id):
+                                attempts.append(
+                                    (
+                                        ["player_queues/play_media", "playerqueues/play_media"],
+                                        payload,
+                                        mode,
+                                    )
+                                )
+                        attempts.append(
+                            (
+                                ["players/play_media"],
+                                {
+                                    "player_id": target_player_id,
+                                    "media_type": "url",
+                                    "uri": target_url,
+                                },
+                                "player_play_media_alt_namespace",
+                            )
+                        )
+
+                    # Always include resume path so we avoid hard-failing on providers
+                    # where direct URL play is unsupported or intermittently broken.
+                    if queue_id:
+                        attempts.append(
+                            (
+                                ["player_queues/play", "playerqueues/play"],
+                                {"queue_id": queue_id},
+                                "queue_resume_play",
+                            )
+                        )
                     attempts.append(
                         (
-                            ["player_queues/play", "playerqueues/play"],
-                            {"queue_id": queue_id},
-                            "queue_resume_play",
+                            ["players/cmd/play"],
+                            {"player_id": target_player_id},
+                            "player_resume_play",
                         )
                     )
-                attempts.append(
-                    (
-                        ["players/cmd/play"],
-                        {"player_id": target_player_id},
-                        "player_resume_play",
+
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_handoff_contract_selected",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": target_player_id,
+                            "queue_id": queue_id,
+                            "provider": provider,
+                            "alexa_like": alexa_like,
+                            "direct_url_supported": direct_url_supported,
+                            "attempt_modes": [mode for _, _, mode in attempts],
+                        }
                     )
                 )
 
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "ma_handoff_contract_selected",
-                        "request_id": request_id,
-                        "home_id": home_id,
-                        "player_id": target_player_id,
-                        "queue_id": queue_id,
-                        "provider": provider,
-                        "alexa_like": alexa_like,
-                        "direct_url_supported": direct_url_supported,
-                        "attempt_modes": [mode for _, _, mode in attempts],
-                    }
-                )
-            )
-
-            for commands, payload, mode in attempts:
-                try:
-                    logger.debug(
-                        json.dumps(
-                            {
-                                "event": "ma_handoff_attempt",
-                                "request_id": request_id,
-                                "home_id": home_id,
-                                "player_id": target_player_id,
-                                "mode": mode,
-                                "commands": commands,
-                                "payload": payload,
-                            },
-                            default=str,
+                for commands, payload, mode in attempts:
+                    try:
+                        logger.debug(
+                            json.dumps(
+                                {
+                                    "event": "ma_handoff_attempt",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "mode": mode,
+                                    "commands": commands,
+                                    "payload": payload,
+                                },
+                                default=str,
+                            )
                         )
-                    )
-                    response = await self._post_command_with_fallback(commands, **payload)
+                        response = await self._post_command_with_fallback(commands, **payload)
 
-                    if mode not in resume_modes:
-                        # Send an explicit play command to reduce delayed-start edge cases.
-                        await self._post_command_with_fallback(["players/cmd/play"], player_id=target_player_id)
+                        if mode not in resume_modes:
+                            # Send an explicit play command to reduce delayed-start edge cases.
+                            await self._post_command_with_fallback(["players/cmd/play"], player_id=target_player_id)
 
-                    if require_direct_url and mode in resume_modes:
-                        # Optional state sync only; do not treat resume-only as playback success.
-                        continue
+                        if require_direct_url and mode in resume_modes:
+                            # Optional state sync only; do not treat resume-only as playback success.
+                            continue
 
-                    return True, "playback-command-sent", {
-                        "mode": mode,
-                        "commands": commands,
-                        "payload": payload,
-                        "response": response,
-                        "player_id": target_player_id,
-                        "queue_id": queue_id,
-                    }
-                except MusicAssistantError as exc:
-                    error_text = str(exc)
-                    logger.warning(
-                        json.dumps(
-                            {
-                                "event": "ma_handoff_attempt_failed",
-                                "request_id": request_id,
-                                "home_id": home_id,
-                                "player_id": target_player_id,
-                                "mode": mode,
-                                "error": error_text,
-                                "ma_error_body": _extract_error_body(error_text),
-                            }
+                        queue_length = 0
+                        queue_readback_error = ""
+                        if queue_id:
+                            try:
+                                queue_items = await self.get_queue_items(
+                                    queue_id,
+                                    request_id=request_id,
+                                    home_id=home_id,
+                                    player_id=target_player_id,
+                                )
+                                queue_length = len(queue_items)
+                            except Exception as exc:
+                                queue_readback_error = str(exc)
+
+                        post_player_state: dict[str, Any] = {}
+                        try:
+                            post_players = await self.get_players()
+                            post_player_state = next(
+                                (
+                                    p
+                                    for p in post_players
+                                    if str(p.get("player_id") or p.get("id") or "").strip() == target_player_id
+                                ),
+                                {},
+                            )
+                        except Exception:
+                            post_player_state = {}
+
+                        current_media = post_player_state.get("current_media")
+                        playback_state = str(post_player_state.get("state") or "")
+                        active_source = str(
+                            post_player_state.get("active_source")
+                            or post_player_state.get("active_queue")
+                            or ""
                         )
-                    )
 
-            fail_message = "direct-url-play-failed" if require_direct_url else "play-media-command-failed"
-            return False, fail_message, {
-                "player_id": target_player_id,
-                "queue_id": queue_id,
-                "playback_url": target_url,
-            }
-        except MusicAssistantAuthError:
-            return False, "ma-auth-failed", {"player_id": target_player_id}
-        except MusicAssistantUnreachableError:
-            return False, "ma-unreachable", {"player_id": target_player_id}
-        except MusicAssistantError as exc:
-            return False, f"ma-error:{exc}", {"player_id": target_player_id}
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "ma_handoff_post_handoff_state",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "mode": mode,
+                                    "queue_id": queue_id,
+                                    "queue_length": queue_length,
+                                    "queue_readback_error": queue_readback_error,
+                                    "current_media": current_media,
+                                    "playback_state": playback_state,
+                                    "active_source": active_source,
+                                },
+                                default=str,
+                            )
+                        )
+
+                        if alexa_like and queue_length < 1:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "ma_handoff_gate_blocked_empty_queue",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": target_player_id,
+                                        "mode": mode,
+                                        "queue_id": queue_id,
+                                        "queue_length": queue_length,
+                                        "rollback_player_only": True,
+                                    }
+                                )
+                            )
+                            continue
+
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "ma_handoff_final_state_publish_gate",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "mode": mode,
+                                    "allowed": True,
+                                    "queue_length": queue_length,
+                                    "playback_state": playback_state,
+                                    "active_source": active_source,
+                                    "has_current_media": bool(current_media),
+                                }
+                            )
+                        )
+
+                        return True, "playback-command-sent", {
+                            "mode": mode,
+                            "commands": commands,
+                            "payload": payload,
+                            "response": response,
+                            "player_id": target_player_id,
+                            "queue_id": queue_id,
+                            "queue_length": queue_length,
+                            "playback_state": playback_state,
+                            "active_source": active_source,
+                            "current_media": current_media,
+                        }
+                    except MusicAssistantError as exc:
+                        error_text = str(exc)
+                        logger.warning(
+                            json.dumps(
+                                {
+                                    "event": "ma_handoff_attempt_failed",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "mode": mode,
+                                    "error": error_text,
+                                    "ma_error_body": _extract_error_body(error_text),
+                                }
+                            )
+                        )
+
+                fail_message = "direct-url-play-failed" if require_direct_url else "play-media-command-failed"
+                return False, fail_message, {
+                    "player_id": target_player_id,
+                    "queue_id": queue_id,
+                    "playback_url": target_url,
+                    "rollback_player_only": alexa_like,
+                }
+            except MusicAssistantAuthError:
+                return False, "ma-auth-failed", {"player_id": target_player_id}
+            except MusicAssistantUnreachableError:
+                return False, "ma-unreachable", {"player_id": target_player_id}
+            except MusicAssistantError as exc:
+                return False, f"ma-error:{exc}", {"player_id": target_player_id}

@@ -346,8 +346,9 @@ def create_app() -> FastAPI:
 
         @_app.get("/alexa/intents", tags=["alexa"])
         @_app.get("/alexa/intents/", tags=["alexa"])
-        async def edge_alexa_intents_probe() -> JSONResponse:
+        async def edge_alexa_intents_probe(request: Request) -> JSONResponse:
             """Edge-mode contract response for MA Alexa provider /alexa/intents preload."""
+            request_id = (request.headers.get("x-request-id") or "").strip() or uuid4().hex
             probe_id = uuid4().hex
             now_iso = datetime.now(timezone.utc).isoformat()
             payload = {
@@ -373,13 +374,16 @@ def create_app() -> FastAPI:
                 },
             )
             logger.info(
-                "edge_alexa_intents_probe probe_id=%s probe_time=%s response payload=%s",
+                "edge_alexa_intents_probe event=%s request_id=%s probe_id=%s probe_time=%s response_payload=%s",
+                "alexa_intents_called",
+                request_id,
                 probe_id,
                 now_iso,
                 payload,
             )
             logger.info(
-                "edge_alexa_intents_probe_contract_check probe_id=%s has_invocation=%s has_intents=%s has_playaudio=%s",
+                "edge_alexa_intents_probe_contract_check request_id=%s probe_id=%s has_invocation=%s has_intents=%s has_playaudio=%s",
+                request_id,
                 probe_id,
                 bool(payload.get("invocationName")),
                 isinstance(payload.get("intents"), list),

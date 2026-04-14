@@ -197,7 +197,8 @@ def _resolve_player_id(player_hint: str, players: list[dict[str, Any]]) -> str:
 @router.post("/push-url")
 async def ma_push_url(request: Request) -> JSONResponse:
     """Handle Music Assistant push-url callback and trigger playback handoff."""
-    request_id = uuid4().hex
+    inbound_request_id = (request.headers.get("x-request-id") or "").strip()
+    request_id = inbound_request_id or uuid4().hex
 
     try:
         body = await request.json()
@@ -220,6 +221,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
             {
                 "event": "ma_push_url_received",
                 "request_id": request_id,
+                "inbound_request_id": inbound_request_id,
                 "has_stream_url": bool(stream_url),
                 "stream_url": stream_url,
                 "last_alexa_probe": {
@@ -377,6 +379,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "player_id": resolved_player_id,
                 "public_playback_url": public_playback_url,
                 "final_playback_url": final_playback_url,
+                "preferred_queue_id": str(flow.get("session_id") or ""),
             }
         )
     )

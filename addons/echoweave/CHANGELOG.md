@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.38] - 2026-04-14
+
+### Fixed
+
+- Add per-player in-flight handoff lock/debounce for Alexa-targeted playback handoff to prevent overlapping push-url play attempts.
+- Gate Alexa handoff success on immediate post-handoff queue readback (`queue_length >= 1`) before treating playback as accepted.
+- Add request-id correlation and post-handoff diagnostics across edge `/alexa/intents` and `/ma/push-url` logs for single-click tracing.
+
 ## [0.3.37] - 2026-04-10
 
 ### Added
