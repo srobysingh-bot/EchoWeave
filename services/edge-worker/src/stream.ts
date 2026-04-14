@@ -150,6 +150,7 @@ export async function handleStreamRequestWithContext(
         playback_session_id: claims.playback_session_id,
         queue_id: claims.queue_id,
         queue_item_id: claims.queue_item_id,
+        origin_stream_path: claims.origin_stream_path,
       },
       timeout_ms: 8000,
     }),

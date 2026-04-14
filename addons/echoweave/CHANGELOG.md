@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.44] - 2026-04-14
+
+### Fixed
+
+- Stop blocking connector `resolve_stream` on unsupported MA command `player_queues/get_stream_url` when session handoff already provides canonical `origin_stream_path`.
+- Resolve Worker stream playback from session context first (`origin_stream_path`) and skip queue lookup dependency for playback-time stream resolution in this path.
+- Add explicit resolve-stream diagnostics for session-context path and queue-lookup suppression (`resolve_stream_from_session_context`, `resolve_stream_queue_lookup_skipped`, `resolve_stream_queue_lookup_failed_but_session_used`).
+- Suppress legacy Alexa direct-play URL injection commands during handoff (`player_queues/play_media`, `playerqueues/play_media`, `players/play_media`) and emit `legacy_direct_play_suppressed`.
+
 ## [0.3.43] - 2026-04-14
 
 ### Fixed

@@ -10,7 +10,7 @@ import httpx
 
 from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
-from app.edge.stream_router import cache_stream_url
+from app.edge.stream_router import cache_stream_url, get_cached_stream_url
 from app.ma.client import MusicAssistantClient
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,7 @@ async def execute_edge_command(
     if command == "resolve_stream":
         queue_id_val = str(payload.get("queue_id") or "").strip()
         queue_item_id_val = str(payload.get("queue_item_id") or "").strip()
+        session_origin_stream_path = str(payload.get("origin_stream_path") or "").strip()
         request_id = str(payload.get("request_id") or payload.get("token_id") or "")
         token_id = str(payload.get("token_id") or "")
         playback_session_id = str(payload.get("playback_session_id") or "")
@@ -157,9 +158,65 @@ async def execute_edge_command(
                     "playback_session_id": playback_session_id,
                     "queue_id": queue_id_val,
                     "queue_item_id": queue_item_id_val,
+                    "session_origin_stream_path": session_origin_stream_path,
                 }
             )
         )
+
+        source_url = ""
+        if queue_id_val and queue_item_id_val:
+            source_url = str(get_cached_stream_url(queue_id_val, queue_item_id_val) or "")
+
+        if session_origin_stream_path:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "resolve_stream_from_session_context",
+                        "request_id": request_id,
+                        "token_id": token_id,
+                        "playback_session_id": playback_session_id,
+                        "queue_id": queue_id_val,
+                        "queue_item_id": queue_item_id_val,
+                        "origin_stream_path": session_origin_stream_path,
+                        "has_cached_source_url": bool(source_url),
+                    }
+                )
+            )
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "resolve_stream_queue_lookup_skipped",
+                        "request_id": request_id,
+                        "token_id": token_id,
+                        "playback_session_id": playback_session_id,
+                        "queue_id": queue_id_val,
+                        "queue_item_id": queue_item_id_val,
+                        "reason": "session_origin_stream_path_available",
+                    }
+                )
+            )
+            if not source_url:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "resolve_stream_queue_lookup_failed_but_session_used",
+                            "request_id": request_id,
+                            "token_id": token_id,
+                            "playback_session_id": playback_session_id,
+                            "queue_id": queue_id_val,
+                            "queue_item_id": queue_item_id_val,
+                            "reason": "lookup_suppressed_for_session_origin_context",
+                        }
+                    )
+                )
+
+            return {
+                "queue_id": queue_id_val,
+                "queue_item_id": queue_item_id_val,
+                "origin_stream_path": session_origin_stream_path,
+                "source_url": source_url,
+                "content_type": "audio/mpeg",
+            }
 
         stream_ctx = await ma_client.build_stream_context(queue_id=queue_id_val, queue_item_id=queue_item_id_val)
         source_url = str(stream_ctx.get("source_url") or "")

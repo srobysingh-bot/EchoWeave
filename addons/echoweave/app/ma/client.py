@@ -1558,45 +1558,37 @@ class MusicAssistantClient:
                     ]
 
                 if alexa_like:
-                    # For Alexa push-url handoff we require a real URL-play trigger and
-                    # never treat generic resume as proof of audible playback.
-                    for selected_queue_id in command_queue_ids:
-                        for payload, mode in _queue_media_payloads(selected_queue_id):
-                            attempts.append(
-                                (
-                                    ["player_queues/play_media", "playerqueues/play_media"],
-                                    payload,
-                                    mode,
-                                )
-                            )
-                    attempts.append(
-                        (
-                            ["players/play_media"],
+                    logger.info(
+                        json.dumps(
                             {
+                                "event": "legacy_direct_play_suppressed",
+                                "request_id": request_id,
+                                "home_id": home_id,
                                 "player_id": target_player_id,
-                                "media_type": "url",
-                                "uri": target_url,
-                            },
-                            "player_play_media_alt_namespace",
+                                "suppressed_commands": [
+                                    "player_queues/play_media",
+                                    "playerqueues/play_media",
+                                    "players/play_media",
+                                ],
+                            }
                         )
                     )
 
-                    if not require_direct_url:
-                        if queue_id:
-                            attempts.append(
-                                (
-                                    ["player_queues/play", "playerqueues/play"],
-                                    {"queue_id": queue_id},
-                                    "queue_resume_play",
-                                )
-                            )
+                    if queue_id:
                         attempts.append(
                             (
-                                ["players/cmd/play"],
-                                {"player_id": target_player_id},
-                                "player_resume_play",
+                                ["player_queues/play", "playerqueues/play"],
+                                {"queue_id": queue_id},
+                                "queue_resume_play",
                             )
                         )
+                    attempts.append(
+                        (
+                            ["players/cmd/play"],
+                            {"player_id": target_player_id},
+                            "player_resume_play",
+                        )
+                    )
                 else:
                     if direct_url_supported:
                         for selected_queue_id in command_queue_ids:
@@ -1735,7 +1727,7 @@ class MusicAssistantClient:
                             )
                         )
 
-                        if alexa_like and queue_length < 1:
+                        if alexa_like and queue_length < 1 and mode not in resume_modes:
                             logger.warning(
                                 json.dumps(
                                     {
