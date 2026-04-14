@@ -58,6 +58,13 @@ def _append_or_replace_query(url: str, key: str, value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
 
 
+def _with_query_params(url: str, params: dict[str, str]) -> str:
+    updated = url
+    for key, value in params.items():
+        updated = _append_or_replace_query(updated, key, value)
+    return updated
+
+
 def _build_alexa_source_url_candidates(source_url: str) -> list[tuple[str, str]]:
     candidates: list[tuple[str, str]] = []
 
@@ -68,12 +75,45 @@ def _build_alexa_source_url_candidates(source_url: str) -> list[tuple[str, str]]
             return
         candidates.append((url, mode))
 
-    # Prefer explicit Alexa-compatible variants before original URL.
-    _push(_replace_path_extension(source_url, "mp3"), "path_ext_mp3")
-    _push(_replace_path_extension(source_url, "aac"), "path_ext_aac")
+    # Prefer explicit codec selection first (MP3 then AAC), with Alexa-safe HTTP profile
+    # and ICY metadata disabled to avoid unsupported response behavior.
+    mp3_base = _with_query_params(
+        source_url,
+        {
+            "codec": "mp3",
+            "format": "mp3",
+            "audio_format": "mp3",
+            "output_codec": "mp3",
+            "http_profile": "alexa",
+            "profile": "alexa",
+            "icy": "0",
+            "metadata": "0",
+            "icymeta": "0",
+        },
+    )
+    aac_base = _with_query_params(
+        source_url,
+        {
+            "codec": "aac",
+            "format": "aac",
+            "audio_format": "aac",
+            "output_codec": "aac",
+            "http_profile": "alexa",
+            "profile": "alexa",
+            "icy": "0",
+            "metadata": "0",
+            "icymeta": "0",
+        },
+    )
+
+    _push(mp3_base, "query_codec_mp3_profile")
+    _push(aac_base, "query_codec_aac_profile")
+    _push(_replace_path_extension(mp3_base, "mp3"), "path_ext_mp3")
+    _push(_replace_path_extension(aac_base, "aac"), "path_ext_aac")
     _push(_append_or_replace_query(source_url, "codec", "mp3"), "query_codec_mp3")
-    _push(_append_or_replace_query(source_url, "format", "mp3"), "query_format_mp3")
-    _push(_append_or_replace_query(source_url, "audio_format", "mp3"), "query_audio_format_mp3")
+    _push(_append_or_replace_query(source_url, "codec", "aac"), "query_codec_aac")
+
+    # Keep original as final fallback for ffmpeg transcode path.
     _push(source_url, "origin")
     return candidates
 
@@ -332,7 +372,21 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
 
             fetch_start = time.perf_counter()
             transcode_request = client.build_request("GET", transcode_source_url, headers=transcode_headers)
-            upstream = await client.send(transcode_request, stream=True)
+            try:
+                upstream = await client.send(transcode_request, stream=True)
+            except Exception as exc:
+                await client.aclose()
+                logger.warning(json.dumps({
+                    "event": "worker_stream_fetch_failed",
+                    "request_id": request_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "mode": "ffmpeg_mp3_fallback",
+                    "reason": "transcode_upstream_fetch_exception",
+                    "source_url": transcode_source_url,
+                    "error": str(exc),
+                }))
+                raise HTTPException(status_code=502, detail="No Alexa-compatible stream source available")
             first_byte_elapsed = (time.perf_counter() - fetch_start) * 1000
             if upstream.status_code not in (200, 206):
                 await upstream.aclose()

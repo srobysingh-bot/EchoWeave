@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.42] - 2026-04-14
+
+### Fixed
+
+- Refine Alexa source URL candidate construction to prioritize explicit codec/profile/metadata query hints (MP3 first, AAC second, Alexa profile hints, ICY metadata off) before extension-based fallbacks.
+- Harden Alexa fallback-transcode fetch error handling in the edge stream proxy and emit explicit upstream fetch failure diagnostics for easier live verification.
+
 ## [0.3.41] - 2026-04-14
 
 ### Fixed
