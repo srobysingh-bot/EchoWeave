@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.43] - 2026-04-14
+
+### Fixed
+
+- Restore real Alexa playback-start trigger in the `/ma/push-url` Alexa handoff path by invoking MA direct URL playback command after Worker token handoff instead of treating handoff token creation as success.
+- Add explicit Alexa device-start logs (`alexa_play_directive_sent`, `alexa_play_directive_result`) and fail handoff as `device_start_failed` when no `/v1/stream/:token` fetch is observed within a short verification window.
+- Add Worker playback-start status tracking (`/v1/connectors/playback-start-status`) backed by HomeSession Durable Object state and mark stream fetch start from `/v1/stream/:token` requests.
+- Add explicit Alexa playback lifecycle logs in add-on webhook handlers (`alexa_playback_started`, `alexa_playback_failed`, `alexa_playback_stopped`).
+
 ## [0.3.42] - 2026-04-14
 
 ### Fixed

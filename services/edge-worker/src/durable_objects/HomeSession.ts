@@ -34,12 +34,24 @@ interface ConnectorResponseEnvelope {
   error?: string | { code?: string; message?: string; details?: Record<string, unknown> };
 }
 
+interface PlaybackStartState {
+  playback_session_id: string;
+  token_id: string;
+  request_id: string;
+  created_at_ms: number;
+  created_at_iso: string;
+  fetched_at_ms?: number;
+  fetched_at_iso?: string;
+  fetch_request_id?: string;
+}
+
 export class HomeSession {
   private state: any;
   private connectorSocket: CloudflareWebSocket | null;
   private connectorMeta: { connector_id: string; tenant_id: string; home_id: string } | null;
   private pending: Map<string, PendingRequest>;
   private lastMetadata: Record<string, unknown>;
+  private playbackStarts: Map<string, PlaybackStartState>;
 
   constructor(state: any) {
     this.state = state;
@@ -47,6 +59,7 @@ export class HomeSession {
     this.connectorMeta = null;
     this.pending = new Map();
     this.lastMetadata = {};
+    this.playbackStarts = new Map();
   }
 
   private json(data: unknown, status = 200): Response {
@@ -231,11 +244,130 @@ export class HomeSession {
     }
   }
 
+  private playbackStartStorageKey(playbackSessionId: string): string {
+    return `playback_start:${playbackSessionId}`;
+  }
+
+  private async getPlaybackStartState(playbackSessionId: string): Promise<PlaybackStartState | null> {
+    const inMemory = this.playbackStarts.get(playbackSessionId);
+    if (inMemory) return inMemory;
+
+    const stored = await this.state.storage.get<PlaybackStartState>(this.playbackStartStorageKey(playbackSessionId));
+    if (stored) {
+      this.playbackStarts.set(playbackSessionId, stored);
+      return stored;
+    }
+    return null;
+  }
+
+  private async savePlaybackStartState(state: PlaybackStartState): Promise<void> {
+    this.playbackStarts.set(state.playback_session_id, state);
+    await this.state.storage.put(this.playbackStartStorageKey(state.playback_session_id), state);
+  }
+
+  private async handlePlaybackStart(request: Request): Promise<Response> {
+    if (request.method !== "POST") return this.json({ error: "method-not-allowed" }, 405);
+
+    const body = (await request.json()) as {
+      action?: string;
+      playback_session_id?: string;
+      token_id?: string;
+      request_id?: string;
+    };
+
+    const action = String(body.action ?? "").trim();
+    const playbackSessionId = String(body.playback_session_id ?? "").trim();
+    if (!action || !playbackSessionId) {
+      return this.json({ error: "action and playback_session_id are required" }, 400);
+    }
+
+    if (action === "register") {
+      const tokenId = String(body.token_id ?? "").trim();
+      const requestId = String(body.request_id ?? "").trim();
+      if (!tokenId) return this.json({ error: "token_id is required for register" }, 400);
+
+      const now = Date.now();
+      const state: PlaybackStartState = {
+        playback_session_id: playbackSessionId,
+        token_id: tokenId,
+        request_id: requestId,
+        created_at_ms: now,
+        created_at_iso: new Date(now).toISOString(),
+      };
+      await this.savePlaybackStartState(state);
+
+      return this.json({
+        ok: true,
+        action,
+        playback_session_id: playbackSessionId,
+        stream_fetch_started: false,
+      });
+    }
+
+    if (action === "mark_fetched") {
+      const requestId = String(body.request_id ?? "").trim();
+      const existing = await this.getPlaybackStartState(playbackSessionId);
+      if (!existing) {
+        return this.json({
+          ok: true,
+          action,
+          playback_session_id: playbackSessionId,
+          stream_fetch_started: true,
+          untracked_session: true,
+        });
+      }
+
+      if (!existing.fetched_at_ms) {
+        const now = Date.now();
+        existing.fetched_at_ms = now;
+        existing.fetched_at_iso = new Date(now).toISOString();
+        existing.fetch_request_id = requestId;
+        await this.savePlaybackStartState(existing);
+      }
+
+      return this.json({
+        ok: true,
+        action,
+        playback_session_id: playbackSessionId,
+        stream_fetch_started: true,
+        fetched_at_iso: existing.fetched_at_iso,
+      });
+    }
+
+    if (action === "status") {
+      const existing = await this.getPlaybackStartState(playbackSessionId);
+      if (!existing) {
+        return this.json({
+          ok: true,
+          action,
+          playback_session_id: playbackSessionId,
+          known_session: false,
+          stream_fetch_started: false,
+        });
+      }
+
+      return this.json({
+        ok: true,
+        action,
+        playback_session_id: playbackSessionId,
+        known_session: true,
+        stream_fetch_started: !!existing.fetched_at_ms,
+        created_at_iso: existing.created_at_iso,
+        fetched_at_iso: existing.fetched_at_iso ?? null,
+        age_ms: Date.now() - existing.created_at_ms,
+        token_id: existing.token_id,
+      });
+    }
+
+    return this.json({ error: "unsupported-action" }, 400);
+  }
+
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
 
     if (path === "/attach") return this.attachConnector(request);
     if (path === "/command" && request.method === "POST") return this.relayCommand(request);
+    if (path === "/playback-start") return this.handlePlaybackStart(request);
     if (path === "/status") {
       return this.json({
         online: this.isConnectorOnline(),

@@ -295,6 +295,88 @@ async def _request_worker_handoff(
     return data or {}
 
 
+async def _fetch_worker_playback_start_status(
+    *,
+    request_id: str,
+    settings: Any,
+    playback_session_id: str,
+) -> dict[str, Any]:
+    worker_base_url = str(getattr(settings, "worker_base_url", "") or "").rstrip("/")
+    connector_id = str(getattr(settings, "connector_id", "") or "")
+    connector_secret = str(getattr(settings, "connector_secret", "") or "")
+    tenant_id = str(getattr(settings, "tenant_id", "") or "")
+    home_id = str(getattr(settings, "home_id", "") or "")
+
+    if not worker_base_url:
+        raise ValueError("missing-worker-base-url")
+    if not connector_id or not connector_secret or not tenant_id or not home_id:
+        raise ValueError("missing-connector-auth")
+    if not playback_session_id:
+        raise ValueError("missing-playback-session-id")
+
+    endpoint = f"{worker_base_url}/v1/connectors/playback-start-status"
+    payload = {
+        "request_id": request_id,
+        "connector_id": connector_id,
+        "connector_secret": connector_secret,
+        "tenant_id": tenant_id,
+        "home_id": home_id,
+        "playback_session_id": playback_session_id,
+    }
+
+    timeout = httpx.Timeout(6.0, connect=3.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(endpoint, json=payload)
+
+    if not response.is_success:
+        raise ValueError(f"worker-playback-start-status-failed:{response.status_code}")
+    parsed = response.json()
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+async def _wait_for_worker_stream_fetch_start(
+    *,
+    request_id: str,
+    settings: Any,
+    playback_session_id: str,
+    wait_seconds: float = 5.0,
+    poll_interval_seconds: float = 1.0,
+) -> tuple[bool, dict[str, Any]]:
+    started_at = monotonic()
+    last_status: dict[str, Any] = {}
+
+    while monotonic() - started_at < wait_seconds:
+        status = await _fetch_worker_playback_start_status(
+            request_id=request_id,
+            settings=settings,
+            playback_session_id=playback_session_id,
+        )
+        if isinstance(status, dict):
+            last_status = status
+
+        stream_fetch_started = bool((status or {}).get("stream_fetch_started"))
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ma_push_url_device_start_probe",
+                    "request_id": request_id,
+                    "playback_session_id": playback_session_id,
+                    "stream_fetch_started": stream_fetch_started,
+                    "known_session": bool((status or {}).get("known_session")),
+                    "age_ms": (status or {}).get("age_ms"),
+                }
+            )
+        )
+        if stream_fetch_started:
+            return True, status
+
+        await asyncio.sleep(poll_interval_seconds)
+
+    return False, last_status
+
+
 def _resolve_player_id(player_hint: str, players: list[dict[str, Any]]) -> str:
     hint = (player_hint or "").strip()
     if not hint:
@@ -599,12 +681,110 @@ async def ma_push_url(request: Request) -> JSONResponse:
             logger.info(
                 json.dumps(
                     {
+                        "event": "alexa_play_directive_sent",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                        "stream_token_id": result["stream_token_id"],
+                        "playback_url": final_playback_url,
+                    }
+                )
+            )
+
+            ok, message, details = await ma_client.handoff_playback_url(
+                player_id=resolved_player_id,
+                playback_url=final_playback_url,
+                preferred_queue_id=preferred_queue_id,
+                request_id=request_id,
+                home_id=home_id,
+                require_direct_url=True,
+            )
+
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_play_directive_result",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                        "ok": ok,
+                        "message": message,
+                        "details": details,
+                    },
+                    default=str,
+                )
+            )
+
+            if not ok:
+                _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                    "status": "failed",
+                    "updated_at": monotonic(),
+                    "request_id": request_id,
+                    "error": message,
+                }
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_failure",
+                            "request_id": request_id,
+                            "reason": "device_start_failed",
+                            "details": message,
+                            "playback_session_id": result["playback_session_id"],
+                        }
+                    )
+                )
+                return JSONResponse(content={"status": "error", "reason": "device_start_failed"}, status_code=502)
+
+            stream_started = False
+            stream_start_status: dict[str, Any] = {}
+            try:
+                stream_started, stream_start_status = await _wait_for_worker_stream_fetch_start(
+                    request_id=request_id,
+                    settings=config_service.settings,
+                    playback_session_id=result["playback_session_id"],
+                    wait_seconds=5.0,
+                    poll_interval_seconds=1.0,
+                )
+            except Exception as exc:
+                stream_started = False
+                stream_start_status = {"error": str(exc)}
+
+            if not stream_started:
+                _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                    "status": "failed",
+                    "updated_at": monotonic(),
+                    "request_id": request_id,
+                    "error": "device_start_failed",
+                }
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "device_start_failed",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "playback_session_id": result["playback_session_id"],
+                            "stream_start_status": stream_start_status,
+                        },
+                        default=str,
+                    )
+                )
+                return JSONResponse(content={"status": "error", "reason": "device_start_failed"}, status_code=502)
+
+            result["stream_start_status"] = stream_start_status
+
+            logger.info(
+                json.dumps(
+                    {
                         "event": "ma_push_url_session_start_accepted",
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": resolved_player_id,
                         "reused_session": False,
                         "status_code": 200,
+                        "device_start_verified": True,
                     }
                 )
             )

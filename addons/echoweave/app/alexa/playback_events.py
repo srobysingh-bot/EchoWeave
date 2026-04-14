@@ -6,6 +6,7 @@ changes in playback state on the device.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Any
@@ -51,6 +52,16 @@ def _extract_event_context(body: dict[str, Any]) -> dict[str, str]:
 async def _handle_playback_started(body: dict[str, Any]) -> dict[str, Any]:
     ctx = _extract_event_context(body)
     logger.info("PlaybackStarted — device=%s token=%s", ctx["device_id"], ctx["token"])
+    logger.info(
+        json.dumps(
+            {
+                "event": "alexa_playback_started",
+                "device_id": ctx["device_id"],
+                "token": ctx["token"],
+                "offset_ms": ctx["offset_ms"],
+            }
+        )
+    )
 
     store = get_session_store()
     store.update_session(
@@ -65,6 +76,16 @@ async def _handle_playback_started(body: dict[str, Any]) -> dict[str, Any]:
 async def _handle_playback_stopped(body: dict[str, Any]) -> dict[str, Any]:
     ctx = _extract_event_context(body)
     logger.info("PlaybackStopped — device=%s token=%s offset=%s", ctx["device_id"], ctx["token"], ctx["offset_ms"])
+    logger.info(
+        json.dumps(
+            {
+                "event": "alexa_playback_stopped",
+                "device_id": ctx["device_id"],
+                "token": ctx["token"],
+                "offset_ms": ctx["offset_ms"],
+            }
+        )
+    )
 
     store = get_session_store()
     store.update_session(
@@ -97,6 +118,18 @@ async def _handle_playback_failed(body: dict[str, Any]) -> dict[str, Any]:
         ctx["token"],
         error.get("type", ""),
         error.get("message", ""),
+    )
+    logger.error(
+        json.dumps(
+            {
+                "event": "alexa_playback_failed",
+                "device_id": ctx["device_id"],
+                "token": ctx["token"],
+                "offset_ms": ctx["offset_ms"],
+                "error_type": error.get("type", ""),
+                "error_message": error.get("message", ""),
+            }
+        )
     )
 
     store = get_session_store()

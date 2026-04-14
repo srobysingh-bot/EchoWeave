@@ -92,6 +92,30 @@ export async function handleStreamRequestWithContext(
 
   const doId = env.HOME_SESSION.idFromName(`${claims.tenant_id}:${claims.home_id}`);
   const sessionStub = env.HOME_SESSION.get(doId);
+
+  try {
+    await sessionStub.fetch("https://home-session/playback-start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "mark_fetched",
+        playback_session_id: claims.playback_session_id,
+        request_id: requestId,
+      }),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "unknown";
+    console.warn(
+      JSON.stringify({
+        event: "worker_stream_fetch_mark_failed",
+        request_id: requestId,
+        token_id: claims.token_id,
+        playback_session_id: claims.playback_session_id,
+        error: message,
+      }),
+    );
+  }
+
   console.info(JSON.stringify({
     event: "stream_proxy_started",
     request_id: requestId,

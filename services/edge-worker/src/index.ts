@@ -1,6 +1,11 @@
 import { handleAlexaWebhookWithContext } from "./alexa";
 import { handleAdminRequest } from "./admin";
-import { handleConnectorPlaybackHandoff, handleConnectorRegister, handleConnectorWebSocket } from "./connectors";
+import {
+  handleConnectorPlaybackHandoff,
+  handleConnectorPlaybackStartStatus,
+  handleConnectorRegister,
+  handleConnectorWebSocket,
+} from "./connectors";
 import { HomeSession } from "./durable_objects/HomeSession";
 import { handleStreamRequestWithContext } from "./stream";
 import { Env } from "./types";
@@ -222,6 +227,12 @@ export default {
 
       if (pathname === "/v1/connectors/playback-handoff") {
         const resp = withCors(await handleConnectorPlaybackHandoff(request, env));
+        resp.headers.set("x-request-id", requestId);
+        return resp;
+      }
+
+      if (pathname === "/v1/connectors/playback-start-status") {
+        const resp = withCors(await handleConnectorPlaybackStartStatus(request, env));
         resp.headers.set("x-request-id", requestId);
         return resp;
       }
