@@ -43,6 +43,14 @@ interface PlaybackStartState {
   fetched_at_ms?: number;
   fetched_at_iso?: string;
   fetch_request_id?: string;
+  playback_started_at_ms?: number;
+  playback_started_at_iso?: string;
+  playback_started_request_id?: string;
+  playback_failed_at_ms?: number;
+  playback_failed_at_iso?: string;
+  playback_failed_request_id?: string;
+  playback_failed_error?: unknown;
+  last_event_type?: string;
 }
 
 export class HomeSession {
@@ -252,7 +260,9 @@ export class HomeSession {
     const inMemory = this.playbackStarts.get(playbackSessionId);
     if (inMemory) return inMemory;
 
-    const stored = await this.state.storage.get<PlaybackStartState>(this.playbackStartStorageKey(playbackSessionId));
+    const stored = (await this.state.storage.get(
+      this.playbackStartStorageKey(playbackSessionId),
+    )) as PlaybackStartState | null;
     if (stored) {
       this.playbackStarts.set(playbackSessionId, stored);
       return stored;
@@ -273,6 +283,8 @@ export class HomeSession {
       playback_session_id?: string;
       token_id?: string;
       request_id?: string;
+      event_type?: string;
+      error?: unknown;
     };
 
     const action = String(body.action ?? "").trim();
@@ -350,12 +362,62 @@ export class HomeSession {
         ok: true,
         action,
         playback_session_id: playbackSessionId,
+        play_request_id: existing.request_id,
         known_session: true,
         stream_fetch_started: !!existing.fetched_at_ms,
+        playback_started: !!existing.playback_started_at_ms,
+        playback_failed: !!existing.playback_failed_at_ms,
         created_at_iso: existing.created_at_iso,
         fetched_at_iso: existing.fetched_at_iso ?? null,
+        playback_started_at_iso: existing.playback_started_at_iso ?? null,
+        playback_failed_at_iso: existing.playback_failed_at_iso ?? null,
+        playback_failed_error: existing.playback_failed_error ?? null,
+        last_event_type: existing.last_event_type ?? null,
         age_ms: Date.now() - existing.created_at_ms,
         token_id: existing.token_id,
+      });
+    }
+
+    if (action === "mark_playback_event") {
+      const eventType = String(body.event_type ?? "").trim();
+      const requestId = String(body.request_id ?? "").trim();
+      const existing = await this.getPlaybackStartState(playbackSessionId);
+      if (!existing) {
+        return this.json({
+          ok: true,
+          action,
+          playback_session_id: playbackSessionId,
+          known_session: false,
+          ignored: true,
+        });
+      }
+
+      const now = Date.now();
+      if (eventType === "AudioPlayer.PlaybackStarted") {
+        existing.playback_started_at_ms = existing.playback_started_at_ms ?? now;
+        existing.playback_started_at_iso = existing.playback_started_at_iso ?? new Date(now).toISOString();
+        existing.playback_started_request_id = requestId;
+        existing.last_event_type = eventType;
+      } else if (eventType === "AudioPlayer.PlaybackFailed") {
+        existing.playback_failed_at_ms = existing.playback_failed_at_ms ?? now;
+        existing.playback_failed_at_iso = existing.playback_failed_at_iso ?? new Date(now).toISOString();
+        existing.playback_failed_request_id = requestId;
+        existing.playback_failed_error = body.error ?? null;
+        existing.last_event_type = eventType;
+      }
+
+      await this.savePlaybackStartState(existing);
+
+      return this.json({
+        ok: true,
+        action,
+        playback_session_id: playbackSessionId,
+        play_request_id: existing.request_id,
+        known_session: true,
+        stream_fetch_started: !!existing.fetched_at_ms,
+        playback_started: !!existing.playback_started_at_ms,
+        playback_failed: !!existing.playback_failed_at_ms,
+        last_event_type: existing.last_event_type ?? null,
       });
     }
 

@@ -3,7 +3,12 @@ import {
   validateAlexaTimestamp,
   verifyAlexaRequestSignature,
 } from "./security";
-import { createPlaybackSession, recordStreamToken, resolveHomeByAlexaUser } from "./db";
+import {
+  createPlaybackSession,
+  getPlaybackSessionForStreamToken,
+  recordStreamToken,
+  resolveHomeByAlexaUser,
+} from "./db";
 import { AlexaRequestEnvelope, Env, PreparedPlayContext, StreamTokenClaims } from "./types";
 
 function json(data: unknown, status = 200): Response {
@@ -229,6 +234,72 @@ function hasAudioPlayerDirective(payload: Record<string, unknown>): boolean {
   });
 }
 
+function validateAlexaPlayResponseContract(payload: Record<string, unknown>): {
+  has_audio_player_play: boolean;
+  should_end_session: boolean | null;
+  directive_behavior: string;
+  audio_item_token: string;
+  has_output_speech: boolean;
+  has_reprompt: boolean;
+  has_response_wrapper: boolean;
+  has_directives_array: boolean;
+  has_stream_url: boolean;
+  invalid_reasons: string[];
+} {
+  const response = payload.response;
+  const hasResponseWrapper = !!(response && typeof response === "object");
+  const responseNode = hasResponseWrapper ? (response as Record<string, unknown>) : {};
+  const directives = responseNode.directives;
+  const hasDirectivesArray = Array.isArray(directives);
+  const shouldEndSession = shouldEndSessionFromPayload(payload);
+  const playSummary = extractAudioPlayerPlaySummary(payload);
+  const hasAudioPlayerPlay = hasAudioPlayerDirective(payload);
+  const hasOutputSpeech = !!responseNode.outputSpeech;
+  const hasReprompt = !!responseNode.reprompt;
+
+  let hasStreamUrl = false;
+  if (Array.isArray(directives)) {
+    const playDirective = directives.find((d) => {
+      if (!d || typeof d !== "object") return false;
+      return (d as Record<string, unknown>).type === "AudioPlayer.Play";
+    }) as Record<string, unknown> | undefined;
+    const audioItem = playDirective?.audioItem;
+    const stream =
+      audioItem && typeof audioItem === "object"
+        ? (audioItem as Record<string, unknown>).stream
+        : null;
+    const url =
+      stream && typeof stream === "object"
+        ? String((stream as Record<string, unknown>).url ?? "")
+        : "";
+    hasStreamUrl = !!url;
+  }
+
+  const invalidReasons: string[] = [];
+  if (!hasResponseWrapper) invalidReasons.push("missing_response_wrapper");
+  if (!hasDirectivesArray) invalidReasons.push("missing_directives_array");
+  if (!hasAudioPlayerPlay) invalidReasons.push("missing_audio_player_play");
+  if (shouldEndSession !== true) invalidReasons.push("should_end_session_not_true");
+  if (hasOutputSpeech) invalidReasons.push("output_speech_conflicts_with_audio_player_play");
+  if (hasReprompt) invalidReasons.push("reprompt_conflicts_with_audio_player_play");
+  if (!playSummary.play_behavior) invalidReasons.push("missing_play_behavior");
+  if (!playSummary.audio_item_token) invalidReasons.push("missing_audio_item_token");
+  if (!hasStreamUrl) invalidReasons.push("missing_stream_url");
+
+  return {
+    has_audio_player_play: hasAudioPlayerPlay,
+    should_end_session: shouldEndSession,
+    directive_behavior: playSummary.play_behavior,
+    audio_item_token: playSummary.audio_item_token,
+    has_output_speech: hasOutputSpeech,
+    has_reprompt: hasReprompt,
+    has_response_wrapper: hasResponseWrapper,
+    has_directives_array: hasDirectivesArray,
+    has_stream_url: hasStreamUrl,
+    invalid_reasons: invalidReasons,
+  };
+}
+
 function isQueueUnavailableError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -335,11 +406,60 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   if (requestType.startsWith("AudioPlayer.")) {
     const requestNode = envelope.request ?? {};
     const token = String((requestNode as Record<string, unknown>).token ?? "");
+    let resolvedPlaybackSessionId = "";
+    let resolvedTenantId = "";
+    let resolvedHomeId = "";
+    let resolvedPlayRequestId = "";
+
+    if (token) {
+      const linked = await getPlaybackSessionForStreamToken(env.ECHOWEAVE_DB, token);
+      if (linked) {
+        resolvedPlaybackSessionId = linked.playback_session_id;
+        resolvedTenantId = linked.tenant_id;
+        resolvedHomeId = linked.home_id;
+        try {
+          const doId = env.HOME_SESSION.idFromName(`${linked.tenant_id}:${linked.home_id}`);
+          const stub = env.HOME_SESSION.get(doId);
+          const markResp = await stub.fetch("https://home-session/playback-start", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "mark_playback_event",
+              playback_session_id: linked.playback_session_id,
+              event_type: requestType,
+              request_id: requestId,
+              error: (requestNode as Record<string, unknown>).error ?? null,
+            }),
+          });
+          if (markResp.ok) {
+            const markBody = (await markResp.json()) as { play_request_id?: string };
+            resolvedPlayRequestId = String(markBody.play_request_id ?? "");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "unknown";
+          console.warn(
+            JSON.stringify({
+              event: "alexa_audio_player_event_mark_failed",
+              request_id: requestId,
+              token,
+              playback_session_id: linked.playback_session_id,
+              event_type: requestType,
+              error: message,
+            }),
+          );
+        }
+      }
+    }
+
     if (requestType === "AudioPlayer.PlaybackStarted") {
       console.info(
         JSON.stringify({
           event: "alexa_audio_player_playback_started",
           request_id: requestId,
+          play_request_id: resolvedPlayRequestId,
+          tenant_id: resolvedTenantId,
+          home_id: resolvedHomeId,
+          playback_session_id: resolvedPlaybackSessionId,
           token,
           offset_ms: (requestNode as Record<string, unknown>).offsetInMilliseconds ?? 0,
         }),
@@ -350,6 +470,10 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         JSON.stringify({
           event: "alexa_audio_player_playback_failed",
           request_id: requestId,
+          play_request_id: resolvedPlayRequestId,
+          tenant_id: resolvedTenantId,
+          home_id: resolvedHomeId,
+          playback_session_id: resolvedPlaybackSessionId,
           token,
           error,
         }),
@@ -589,20 +713,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
 
   // Build and validate the actual AudioPlayer.Play response contract.
   const payload = buildAlexaAudioPlayResponse(streamUrl, tokenId);
-  const hasAudioPlayerPlay = hasAudioPlayerDirective(payload);
-  const shouldEndSession = shouldEndSessionFromPayload(payload);
-  const playSummary = extractAudioPlayerPlaySummary(payload);
-  const responseNode = payload.response;
-  const hasOutputSpeech = !!(
-    responseNode &&
-    typeof responseNode === "object" &&
-    (responseNode as Record<string, unknown>).outputSpeech
-  );
-  const hasReprompt = !!(
-    responseNode &&
-    typeof responseNode === "object" &&
-    (responseNode as Record<string, unknown>).reprompt
-  );
+  const contract = validateAlexaPlayResponseContract(payload);
   console.info(
     JSON.stringify({
       event: "alexa_audio_player_play_response_built",
@@ -610,18 +721,28 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       play_request_id: requestId,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
-      has_audio_player_play: hasAudioPlayerPlay,
-      should_end_session: shouldEndSession,
-      behavior: playSummary.play_behavior,
-      expected_audio_item_id: playSummary.audio_item_token,
-      has_output_speech: hasOutputSpeech,
-      has_reprompt: hasReprompt,
+      has_audio_player_play: contract.has_audio_player_play,
+      should_end_session: contract.should_end_session,
+      directive_behavior: contract.directive_behavior,
+      audio_item_token: contract.audio_item_token,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
+      invalid_reasons: contract.invalid_reasons,
     }),
   );
 
-  if (!hasAudioPlayerPlay || shouldEndSession !== true || hasOutputSpeech || hasReprompt) {
+  console.info(
+    JSON.stringify({
+      event: "alexa_audio_player_play_response_payload",
+      request_id: requestId,
+      play_request_id: requestId,
+      playback_session_id: playbackSessionId,
+      stream_token_id: tokenId,
+      response_payload: payload,
+    }),
+  );
+
+  if (contract.invalid_reasons.length > 0) {
     console.warn(
       JSON.stringify({
         event: "prototype_skill_play_response_invalid",
@@ -629,12 +750,11 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         play_request_id: requestId,
         playback_session_id: playbackSessionId,
         stream_token_id: tokenId,
-        has_audio_player_play: hasAudioPlayerPlay,
-        should_end_session: shouldEndSession,
-        behavior: playSummary.play_behavior,
-        expected_audio_item_id: playSummary.audio_item_token,
-        has_output_speech: hasOutputSpeech,
-        has_reprompt: hasReprompt,
+        has_audio_player_play: contract.has_audio_player_play,
+        should_end_session: contract.should_end_session,
+        directive_behavior: contract.directive_behavior,
+        audio_item_token: contract.audio_item_token,
+        invalid_reasons: contract.invalid_reasons,
       }),
     );
     const invalidPayload = buildAlexaSpeechResponse("Playback response invalid.");
@@ -649,12 +769,10 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       play_request_id: requestId,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
-      has_audio_player_play: hasAudioPlayerPlay,
-      should_end_session: shouldEndSession,
-      behavior: playSummary.play_behavior,
-      expected_audio_item_id: playSummary.audio_item_token,
-      has_output_speech: hasOutputSpeech,
-      has_reprompt: hasReprompt,
+      has_audio_player_play: contract.has_audio_player_play,
+      should_end_session: contract.should_end_session,
+      directive_behavior: contract.directive_behavior,
+      audio_item_token: contract.audio_item_token,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
     }),

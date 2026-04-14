@@ -305,6 +305,25 @@ export async function getRecordedStreamToken(
   return row ?? null;
 }
 
+export async function getPlaybackSessionForStreamToken(
+  db: D1Database,
+  tokenId: string,
+): Promise<{ tenant_id: string; home_id: string; playback_session_id: string } | null> {
+  const row = await db
+    .prepare(
+      `
+      SELECT tenant_id, home_id, playback_session_id
+      FROM stream_tokens
+      WHERE id = ?
+      LIMIT 1
+      `,
+    )
+    .bind(tokenId)
+    .first<{ tenant_id: string; home_id: string; playback_session_id: string }>();
+
+  return row ?? null;
+}
+
 export async function getOriginBaseUrl(
   db: D1Database,
   homeId: string,

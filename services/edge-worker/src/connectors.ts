@@ -53,7 +53,20 @@ async function getPlaybackStartStatusFromSession(
   tenantId: string,
   homeId: string,
   playbackSessionId: string,
-): Promise<{ known_session: boolean; stream_fetch_started: boolean; created_at_iso?: string; fetched_at_iso?: string; age_ms?: number }>
+): Promise<{
+  known_session: boolean;
+  stream_fetch_started: boolean;
+  playback_started: boolean;
+  playback_failed: boolean;
+  play_request_id?: string;
+  created_at_iso?: string;
+  fetched_at_iso?: string;
+  playback_started_at_iso?: string;
+  playback_failed_at_iso?: string;
+  playback_failed_error?: unknown;
+  last_event_type?: string;
+  age_ms?: number;
+}>
 {
   const doId = env.HOME_SESSION.idFromName(`${tenantId}:${homeId}`);
   const stub = env.HOME_SESSION.get(doId);
@@ -72,15 +85,29 @@ async function getPlaybackStartStatusFromSession(
   const statusBody = (await statusResp.json()) as {
     known_session?: boolean;
     stream_fetch_started?: boolean;
+    playback_started?: boolean;
+    playback_failed?: boolean;
+    play_request_id?: string;
     created_at_iso?: string;
     fetched_at_iso?: string;
+    playback_started_at_iso?: string;
+    playback_failed_at_iso?: string;
+    playback_failed_error?: unknown;
+    last_event_type?: string;
     age_ms?: number;
   };
   return {
     known_session: !!statusBody.known_session,
     stream_fetch_started: !!statusBody.stream_fetch_started,
+    playback_started: !!statusBody.playback_started,
+    playback_failed: !!statusBody.playback_failed,
+    play_request_id: statusBody.play_request_id,
     created_at_iso: statusBody.created_at_iso,
     fetched_at_iso: statusBody.fetched_at_iso,
+    playback_started_at_iso: statusBody.playback_started_at_iso,
+    playback_failed_at_iso: statusBody.playback_failed_at_iso,
+    playback_failed_error: statusBody.playback_failed_error,
+    last_event_type: statusBody.last_event_type,
     age_ms: statusBody.age_ms,
   };
 }
@@ -632,7 +659,11 @@ export async function handleConnectorPlaybackStartStatus(request: Request, env: 
         home_id: homeId,
         playback_session_id: playbackSessionId,
         stream_fetch_started: status.stream_fetch_started,
+        playback_started: status.playback_started,
+        playback_failed: status.playback_failed,
+        play_request_id: status.play_request_id ?? "",
         known_session: status.known_session,
+        last_event_type: status.last_event_type ?? "",
         age_ms: status.age_ms ?? null,
       }),
     );
@@ -640,9 +671,16 @@ export async function handleConnectorPlaybackStartStatus(request: Request, env: 
       ok: true,
       playback_session_id: playbackSessionId,
       stream_fetch_started: status.stream_fetch_started,
+      playback_started: status.playback_started,
+      playback_failed: status.playback_failed,
+      play_request_id: status.play_request_id,
       known_session: status.known_session,
       created_at_iso: status.created_at_iso,
       fetched_at_iso: status.fetched_at_iso,
+      playback_started_at_iso: status.playback_started_at_iso,
+      playback_failed_at_iso: status.playback_failed_at_iso,
+      playback_failed_error: status.playback_failed_error,
+      last_event_type: status.last_event_type,
       age_ms: status.age_ms,
     });
   } catch (error) {

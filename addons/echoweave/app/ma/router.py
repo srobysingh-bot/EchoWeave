@@ -357,6 +357,7 @@ async def _wait_for_worker_stream_fetch_start(
             last_status = status
 
         stream_fetch_started = bool((status or {}).get("stream_fetch_started"))
+        playback_started = bool((status or {}).get("playback_started"))
         logger.info(
             json.dumps(
                 {
@@ -364,12 +365,15 @@ async def _wait_for_worker_stream_fetch_start(
                     "request_id": request_id,
                     "playback_session_id": playback_session_id,
                     "stream_fetch_started": stream_fetch_started,
+                    "playback_started": playback_started,
                     "known_session": bool((status or {}).get("known_session")),
+                    "play_request_id": (status or {}).get("play_request_id", ""),
+                    "last_event_type": (status or {}).get("last_event_type", ""),
                     "age_ms": (status or {}).get("age_ms"),
                 }
             )
         )
-        if stream_fetch_started:
+        if stream_fetch_started or playback_started:
             return True, status
 
         await asyncio.sleep(poll_interval_seconds)
@@ -712,7 +716,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
             logger.info(
                 json.dumps(
                     {
-                        "event": "alexa_audio_player_play_sent",
+                        "event": "alexa_audio_player_play_response_expected",
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": resolved_player_id,
@@ -720,6 +724,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                         "stream_token_id": result["stream_token_id"],
                         "playback_url": final_playback_url,
                         "source": "prototype_skill_path",
+                        "note": "handoff accepted; awaiting Alexa fetch or playback callback proof",
                     }
                 )
             )
@@ -778,7 +783,12 @@ async def ma_push_url(request: Request) -> JSONResponse:
                             "home_id": home_id,
                             "player_id": resolved_player_id,
                             "playback_session_id": result["playback_session_id"],
-                            "reason": "no_stream_fetch_observed_after_play_response",
+                            "reason": "no_stream_fetch_or_playback_started_after_play_response",
+                            "stream_fetch_started": bool((stream_start_status or {}).get("stream_fetch_started")),
+                            "playback_started": bool((stream_start_status or {}).get("playback_started")),
+                            "known_session": bool((stream_start_status or {}).get("known_session")),
+                            "play_request_id": (stream_start_status or {}).get("play_request_id", ""),
+                            "last_event_type": (stream_start_status or {}).get("last_event_type", ""),
                         }
                     )
                 )
