@@ -468,119 +468,6 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
       });
       logStep("stream_token_recorded", {
-            }
-
-            try {
-              const doId = env.HOME_SESSION.idFromName(`${tenantId}:${homeId}`);
-              const stub = env.HOME_SESSION.get(doId);
-              const registerResp = await stub.fetch("https://home-session/playback-start", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  action: "register",
-                  playback_session_id: playbackSessionId,
-                  token_id: tokenId,
-                  request_id: requestId,
-                }),
-              });
-
-              if (!registerResp.ok) {
-                const registerText = await registerResp.text();
-                logStep("playback_start_watch_register_failed", {
-                  playback_session_id: playbackSessionId,
-                  stream_token_id: tokenId,
-                  status: registerResp.status,
-                  body: registerText,
-                });
-              } else {
-                logStep("playback_start_watch_registered", {
-                  playback_session_id: playbackSessionId,
-                  stream_token_id: tokenId,
-                });
-              }
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              logStep("playback_start_watch_register_failed", {
-                playback_session_id: playbackSessionId,
-                stream_token_id: tokenId,
-                error: message,
-              });
-            }
-
-        export async function handleConnectorPlaybackStartStatus(request: Request, env: Env): Promise<Response> {
-          if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
-
-          const body = (await request.json()) as {
-            connector_id?: string;
-            connector_secret?: string;
-            tenant_id?: string;
-            home_id?: string;
-            playback_session_id?: string;
-            request_id?: string;
-          };
-
-          const connectorId = String(body.connector_id ?? "").trim();
-          const connectorSecret = String(body.connector_secret ?? "").trim();
-          const tenantId = String(body.tenant_id ?? "").trim();
-          const homeId = String(body.home_id ?? "").trim();
-          const playbackSessionId = String(body.playback_session_id ?? "").trim();
-          const requestId = String(body.request_id ?? "").trim();
-
-          if (!playbackSessionId) {
-            return badRequest("playback_session_id is required");
-          }
-
-          const auth = await authenticateConnector({
-            env,
-            connectorId,
-            connectorSecret,
-            tenantId,
-            homeId,
-          });
-          if (!auth.ok) {
-            return json({ error: auth.error }, auth.status);
-          }
-
-          try {
-            const status = await getPlaybackStartStatusFromSession(env, tenantId, homeId, playbackSessionId);
-            console.info(
-              JSON.stringify({
-                event: "playback_start_status_checked",
-                request_id: requestId,
-                connector_id: connectorId,
-                tenant_id: tenantId,
-                home_id: homeId,
-                playback_session_id: playbackSessionId,
-                stream_fetch_started: status.stream_fetch_started,
-                known_session: status.known_session,
-                age_ms: status.age_ms ?? null,
-              }),
-            );
-            return json({
-              ok: true,
-              playback_session_id: playbackSessionId,
-              stream_fetch_started: status.stream_fetch_started,
-              known_session: status.known_session,
-              created_at_iso: status.created_at_iso,
-              fetched_at_iso: status.fetched_at_iso,
-              age_ms: status.age_ms,
-            });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.warn(
-              JSON.stringify({
-                event: "playback_start_status_failed",
-                request_id: requestId,
-                connector_id: connectorId,
-                tenant_id: tenantId,
-                home_id: homeId,
-                playback_session_id: playbackSessionId,
-                error: message,
-              }),
-            );
-            return json({ error: "playback-start-status-unavailable" }, 502);
-          }
-        }
         stream_token_id: tokenId,
       });
     } catch (error) {
@@ -598,6 +485,43 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         }),
       );
       throw error;
+    }
+
+    try {
+      const doId = env.HOME_SESSION.idFromName(`${tenantId}:${homeId}`);
+      const stub = env.HOME_SESSION.get(doId);
+      const registerResp = await stub.fetch("https://home-session/playback-start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          playback_session_id: playbackSessionId,
+          token_id: tokenId,
+          request_id: requestId,
+        }),
+      });
+
+      if (!registerResp.ok) {
+        const registerText = await registerResp.text();
+        logStep("playback_start_watch_register_failed", {
+          playback_session_id: playbackSessionId,
+          stream_token_id: tokenId,
+          status: registerResp.status,
+          body: registerText,
+        });
+      } else {
+        logStep("playback_start_watch_registered", {
+          playback_session_id: playbackSessionId,
+          stream_token_id: tokenId,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logStep("playback_start_watch_register_failed", {
+        playback_session_id: playbackSessionId,
+        stream_token_id: tokenId,
+        error: message,
+      });
     }
 
     const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
@@ -660,5 +584,80 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       }),
     );
     return json({ error: message, runtime }, 500);
+  }
+}
+
+export async function handleConnectorPlaybackStartStatus(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
+
+  const body = (await request.json()) as {
+    connector_id?: string;
+    connector_secret?: string;
+    tenant_id?: string;
+    home_id?: string;
+    playback_session_id?: string;
+    request_id?: string;
+  };
+
+  const connectorId = String(body.connector_id ?? "").trim();
+  const connectorSecret = String(body.connector_secret ?? "").trim();
+  const tenantId = String(body.tenant_id ?? "").trim();
+  const homeId = String(body.home_id ?? "").trim();
+  const playbackSessionId = String(body.playback_session_id ?? "").trim();
+  const requestId = String(body.request_id ?? "").trim();
+
+  if (!playbackSessionId) {
+    return badRequest("playback_session_id is required");
+  }
+
+  const auth = await authenticateConnector({
+    env,
+    connectorId,
+    connectorSecret,
+    tenantId,
+    homeId,
+  });
+  if (!auth.ok) {
+    return json({ error: auth.error }, auth.status);
+  }
+
+  try {
+    const status = await getPlaybackStartStatusFromSession(env, tenantId, homeId, playbackSessionId);
+    console.info(
+      JSON.stringify({
+        event: "playback_start_status_checked",
+        request_id: requestId,
+        connector_id: connectorId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        playback_session_id: playbackSessionId,
+        stream_fetch_started: status.stream_fetch_started,
+        known_session: status.known_session,
+        age_ms: status.age_ms ?? null,
+      }),
+    );
+    return json({
+      ok: true,
+      playback_session_id: playbackSessionId,
+      stream_fetch_started: status.stream_fetch_started,
+      known_session: status.known_session,
+      created_at_iso: status.created_at_iso,
+      fetched_at_iso: status.fetched_at_iso,
+      age_ms: status.age_ms,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      JSON.stringify({
+        event: "playback_start_status_failed",
+        request_id: requestId,
+        connector_id: connectorId,
+        tenant_id: tenantId,
+        home_id: homeId,
+        playback_session_id: playbackSessionId,
+        error: message,
+      }),
+    );
+    return json({ error: "playback-start-status-unavailable" }, 502);
   }
 }
