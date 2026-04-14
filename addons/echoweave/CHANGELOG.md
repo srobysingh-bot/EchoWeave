@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.39] - 2026-04-14
+
+### Fixed
+
+- Enforce Worker-handoff-only playback path for Alexa `/ma/push-url` flow and suppress legacy direct URL fallback commands (`player_queues/play_media`, `players/play_media`, and public flow fallback) for Echo players.
+- Add strict per-player (`home_id + player_id`) duplicate request coalescing with short-window session reuse, returning accepted/reused response instead of failing duplicate requests.
+- Treat duplicate post-handoff requests as coalesced/reused sessions (not handoff failures) and add explicit logs for accepted start/final state snapshots.
+
 ## [0.3.38] - 2026-04-14
 
 ### Fixed
