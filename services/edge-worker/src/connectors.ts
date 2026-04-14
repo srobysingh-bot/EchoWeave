@@ -135,6 +135,7 @@ export async function handleConnectorWebSocket(request: Request, env: Env): Prom
 
 export async function handleConnectorPlaybackHandoff(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return json({ error: "method-not-allowed" }, 405);
+  const startedAt = Date.now();
   try {
     const body = (await request.json()) as {
       connector_id?: string;
@@ -168,6 +169,34 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       db_id: env.ECHOWEAVE_DB_ID ?? "unknown",
     };
 
+    const sourceFormatHint = (() => {
+      const path = originStreamPath.toLowerCase();
+      const idx = path.lastIndexOf(".");
+      if (idx === -1) return "";
+      const ext = path.slice(idx + 1).split("?")[0].trim();
+      return ext;
+    })();
+
+    const logStep = (step: string, extra: Record<string, unknown> = {}) => {
+      console.info(
+        JSON.stringify({
+          event: "playback_handoff_step",
+          request_id: requestId,
+          step,
+          elapsed_ms: Date.now() - startedAt,
+          connector_id: connectorId,
+          tenant_id: tenantId,
+          home_id: homeId,
+          player_id: playerId,
+          queue_id: queueId,
+          queue_item_id: queueItemId,
+          source_format_hint: sourceFormatHint,
+          runtime,
+          ...extra,
+        }),
+      );
+    };
+
     console.info(
       JSON.stringify({
         event: "playback_handoff_request_received",
@@ -182,8 +211,14 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         runtime,
       }),
     );
+    logStep("request_received");
 
     if (!queueId || !queueItemId || !originStreamPath) {
+      logStep("validation_failed_missing_identifiers", {
+        has_queue_id: !!queueId,
+        has_queue_item_id: !!queueItemId,
+        has_origin_stream_path: !!originStreamPath,
+      });
       console.warn(
         JSON.stringify({
           event: "playback_handoff_failed",
@@ -194,7 +229,9 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       );
       return json({ error: "queue_id, queue_item_id, origin_stream_path are required", runtime }, 400);
     }
+    logStep("validation_ok");
 
+    logStep("connector_auth_started");
     const auth = await authenticateConnector({
       env,
       connectorId,
@@ -217,6 +254,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       );
       return json({ error: auth.error, runtime }, auth.status);
     }
+    logStep("connector_auth_ok");
 
     console.info(
       JSON.stringify({
@@ -231,6 +269,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         runtime,
       }),
     );
+    logStep("home_context_resolved");
 
     const nowSeconds = Math.floor(Date.now() / 1000);
     const ttl = Number(env.STREAM_TOKEN_TTL_SECONDS ?? "300");
@@ -247,12 +286,25 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       client_profile: "alexa",
       exp: nowSeconds + ttl,
     };
+    logStep("token_claims_prepared", {
+      stream_token_id: tokenId,
+      playback_session_id: playbackSessionId,
+      token_ttl_seconds: ttl,
+      token_exp: claims.exp,
+      client_profile: claims.client_profile,
+    });
 
     const streamToken = await issueSignedStreamToken(claims, env.STREAM_TOKEN_SIGNING_SECRET);
     const signature = streamToken.split(".")[1] ?? "";
+    logStep("token_signed", {
+      stream_token_id: tokenId,
+      token_signature_length: signature.length,
+    });
 
+    logStep("alexa_user_lookup_started");
     const alexaUserId = await resolveAlexaUserForHome(env.ECHOWEAVE_DB, tenantId, homeId);
     if (!alexaUserId) {
+      logStep("alexa_user_lookup_failed_not_linked");
       console.warn(
         JSON.stringify({
           event: "playback_handoff_failed",
@@ -265,6 +317,9 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       );
       return json({ error: "alexa-user-not-linked", runtime }, 409);
     }
+    logStep("alexa_user_lookup_ok", {
+      alexa_user_id_truncated: `${alexaUserId.slice(0, 12)}...${alexaUserId.slice(-6)}`,
+    });
 
     const alexaAccountExists = await env.ECHOWEAVE_DB.prepare(
       `
@@ -291,6 +346,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       );
       return json({ error: "alexa-user-fk-verification-failed", runtime }, 409);
     }
+    logStep("alexa_user_fk_verified");
 
     console.info(
       JSON.stringify({
@@ -333,6 +389,9 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
           player_id: playerId,
         }),
       });
+      logStep("playback_session_inserted", {
+        playback_session_id: playbackSessionId,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
@@ -371,6 +430,9 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         token_signature: signature,
         expires_at_iso: new Date((nowSeconds + ttl) * 1000).toISOString(),
       });
+      logStep("stream_token_recorded", {
+        stream_token_id: tokenId,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
@@ -389,6 +451,9 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
     }
 
     const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
+    logStep("stream_url_built", {
+      stream_url: streamUrl,
+    });
 
     console.info(
       JSON.stringify({
@@ -411,6 +476,11 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       stream_url: streamUrl,
       runtime,
     };
+    logStep("response_ready", {
+      ok: true,
+      playback_session_id: playbackSessionId,
+      stream_token_id: tokenId,
+    });
     console.info(
       JSON.stringify({
         event: "playback_handoff_response_sent",

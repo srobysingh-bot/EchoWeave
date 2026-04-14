@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.41] - 2026-04-14
+
+### Fixed
+
+- Add Alexa on-the-fly MP3 fallback transcoding in edge stream proxy when upstream responses are not in Alexa-supported formats, while preserving Worker token flow and signed edge fetch path.
+- Add `ffmpeg` runtime dependency to addon image for Alexa fallback transcoding.
+- Add detailed playback-handoff step diagnostics in Worker connector handoff flow (`playback_handoff_step`) with elapsed timing and source format hints to simplify control-plane vs media-plane debugging.
+
 ## [0.3.40] - 2026-04-14
 
 ### Fixed

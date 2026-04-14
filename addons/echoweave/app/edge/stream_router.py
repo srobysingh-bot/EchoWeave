@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -28,6 +29,8 @@ _ALEXA_SUPPORTED_CONTENT_TYPES = (
     "application/x-mpegurl",
     "audio/x-mpegurl",
 )
+
+_TRANSCODE_CHUNK_SIZE = 64 * 1024
 
 
 def _is_alexa_supported_content_type(content_type: str) -> bool:
@@ -233,6 +236,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     first_byte_elapsed = 0.0
 
     source_candidates = [(origin_source_url, "origin")]
+    transcode_fallback: tuple[str, str, str] | None = None
     if is_alexa_profile:
         source_candidates = _build_alexa_source_url_candidates(origin_source_url)
         logger.info(json.dumps({
@@ -289,6 +293,8 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             continue
 
         if is_alexa_profile and not _is_alexa_supported_content_type(content_type):
+            if transcode_fallback is None:
+                transcode_fallback = (candidate_url, candidate_mode, content_type)
             await candidate_response.aclose()
             logger.warning(json.dumps({
                 "event": "worker_stream_fetch_failed",
@@ -308,6 +314,174 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         break
 
     if upstream is None:
+        if is_alexa_profile and transcode_fallback is not None:
+            transcode_source_url, transcode_source_mode, transcode_source_content_type = transcode_fallback
+            logger.info(json.dumps({
+                "event": "alexa_stream_transcode_started",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "mode": "ffmpeg_mp3_fallback",
+                "source_mode": transcode_source_mode,
+                "source_content_type": transcode_source_content_type,
+                "source_url": transcode_source_url,
+            }))
+            transcode_headers = {}
+            if request.headers.get("if-range"):
+                transcode_headers["If-Range"] = request.headers["if-range"]
+
+            fetch_start = time.perf_counter()
+            transcode_request = client.build_request("GET", transcode_source_url, headers=transcode_headers)
+            upstream = await client.send(transcode_request, stream=True)
+            first_byte_elapsed = (time.perf_counter() - fetch_start) * 1000
+            if upstream.status_code not in (200, 206):
+                await upstream.aclose()
+                await client.aclose()
+                logger.warning(json.dumps({
+                    "event": "worker_stream_fetch_failed",
+                    "request_id": request_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "mode": "ffmpeg_mp3_fallback",
+                    "reason": "bad_status",
+                    "upstream_status": upstream.status_code,
+                }))
+                raise HTTPException(status_code=502, detail="No Alexa-compatible stream source available")
+
+            try:
+                ffmpeg_proc = await asyncio.create_subprocess_exec(
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    "-i",
+                    "pipe:0",
+                    "-vn",
+                    "-c:a",
+                    "libmp3lame",
+                    "-b:a",
+                    "128k",
+                    "-f",
+                    "mp3",
+                    "pipe:1",
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except FileNotFoundError as exc:
+                await upstream.aclose()
+                await client.aclose()
+                logger.error(json.dumps({
+                    "event": "worker_stream_fetch_failed",
+                    "request_id": request_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "mode": "ffmpeg_mp3_fallback",
+                    "reason": "ffmpeg_not_available",
+                    "error": str(exc),
+                }))
+                raise HTTPException(status_code=502, detail="ffmpeg unavailable for Alexa transcode")
+
+            selected_source_url = transcode_source_url
+            selected_mode = "ffmpeg_mp3_fallback"
+
+            async def _pump_upstream_to_ffmpeg() -> None:
+                try:
+                    async for chunk in upstream.aiter_bytes(_TRANSCODE_CHUNK_SIZE):
+                        if ffmpeg_proc.stdin is None:
+                            break
+                        ffmpeg_proc.stdin.write(chunk)
+                        await ffmpeg_proc.stdin.drain()
+                finally:
+                    if ffmpeg_proc.stdin is not None:
+                        ffmpeg_proc.stdin.close()
+
+            pump_task = asyncio.create_task(_pump_upstream_to_ffmpeg())
+
+            async def stream_iter_transcode():
+                try:
+                    if ffmpeg_proc.stdout is None:
+                        return
+                    while True:
+                        chunk = await ffmpeg_proc.stdout.read(_TRANSCODE_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    await pump_task
+                    stderr_text = ""
+                    if ffmpeg_proc.stderr is not None:
+                        try:
+                            stderr_text = (await ffmpeg_proc.stderr.read()).decode("utf-8", errors="replace")[:2000]
+                        except Exception:
+                            stderr_text = ""
+                    return_code = await ffmpeg_proc.wait()
+                    if return_code != 0:
+                        logger.warning(json.dumps({
+                            "event": "worker_stream_fetch_failed",
+                            "request_id": request_id,
+                            "queue_id": queue_id,
+                            "queue_item_id": queue_item_id,
+                            "mode": "ffmpeg_mp3_fallback",
+                            "reason": "ffmpeg_exit_nonzero",
+                            "ffmpeg_exit_code": return_code,
+                            "ffmpeg_stderr": stderr_text,
+                        }))
+                    await upstream.aclose()
+                    await client.aclose()
+
+            logger.info(json.dumps({
+                "event": "worker_stream_first_byte_sent",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "mode": selected_mode,
+                "source_url": selected_source_url,
+                "first_byte_ms": round(first_byte_elapsed, 1),
+                "upstream_status": upstream.status_code,
+            }))
+
+            logger.info(json.dumps({
+                "event": "alexa_stream_response_content_type",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "is_alexa_profile": True,
+                "source_mode": selected_mode,
+                "content_type": "audio/mpeg",
+            }))
+
+            overall_elapsed = (time.perf_counter() - overall_start) * 1000
+            logger.info(json.dumps({
+                "event": "edge_stream_response",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "status": 200,
+                "first_byte_ms": round(first_byte_elapsed, 1),
+                "lookup_ms": round(resolve_elapsed * 1000, 1),
+                "total_ms": round(overall_elapsed, 1),
+                "content_type": "audio/mpeg",
+                "accept_ranges": "none",
+                "content_length": "",
+                "content_range": "",
+                "transfer_encoding": "chunked",
+                "source_mode": selected_mode,
+                "selected_source_url": selected_source_url,
+            }))
+
+            return StreamingResponse(
+                stream_iter_transcode(),
+                status_code=200,
+                headers={
+                    "Content-Type": "audio/mpeg",
+                    "Accept-Ranges": "none",
+                    "Cache-Control": "no-store",
+                },
+                media_type="audio/mpeg",
+            )
+
         await client.aclose()
         raise HTTPException(status_code=502, detail="No Alexa-compatible stream source available")
 
@@ -339,6 +513,16 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         }))
         raise HTTPException(status_code=502, detail=f"Origin stream failed: {upstream.status_code}")
 
+    logger.info(json.dumps({
+        "event": "alexa_stream_response_content_type",
+        "request_id": request_id,
+        "queue_id": queue_id,
+        "queue_item_id": queue_item_id,
+        "is_alexa_profile": is_alexa_profile,
+        "source_mode": selected_mode,
+        "content_type": upstream.headers.get("content-type", ""),
+    }))
+
     async def stream_iter():
         try:
             async for chunk in upstream.aiter_bytes():
@@ -346,16 +530,6 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         finally:
             await upstream.aclose()
             await client.aclose()
-
-        logger.info(json.dumps({
-            "event": "alexa_stream_response_content_type",
-            "request_id": request_id,
-            "queue_id": queue_id,
-            "queue_item_id": queue_item_id,
-            "is_alexa_profile": is_alexa_profile,
-            "source_mode": selected_mode,
-            "content_type": upstream.headers.get("content-type", ""),
-        }))
 
     response_headers = {
         "Content-Type": upstream.headers.get("content-type", "audio/mpeg"),

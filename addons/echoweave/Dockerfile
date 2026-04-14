@@ -4,7 +4,8 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache \
     curl \
     jq \
-    bash
+    bash \
+    ffmpeg
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
