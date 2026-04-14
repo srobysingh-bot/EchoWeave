@@ -130,11 +130,10 @@ async function validateAlexaSignature(request: Request, env: Env): Promise<boole
   return true;
 }
 
-function buildAlexaAudioPlayResponse(streamUrl: string, token: string, speech?: string): Record<string, unknown> {
+function buildAlexaAudioPlayResponse(streamUrl: string, token: string): Record<string, unknown> {
   return {
     version: "1.0",
     response: {
-      ...(speech ? { outputSpeech: { type: "PlainText", text: speech } } : {}),
       shouldEndSession: true,
       directives: [
         {
@@ -589,10 +588,21 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   const streamSummary = summarizeStreamUrl(streamUrl);
 
   // Build and validate the actual AudioPlayer.Play response contract.
-  const payload = buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now.");
+  const payload = buildAlexaAudioPlayResponse(streamUrl, tokenId);
   const hasAudioPlayerPlay = hasAudioPlayerDirective(payload);
   const shouldEndSession = shouldEndSessionFromPayload(payload);
   const playSummary = extractAudioPlayerPlaySummary(payload);
+  const responseNode = payload.response;
+  const hasOutputSpeech = !!(
+    responseNode &&
+    typeof responseNode === "object" &&
+    (responseNode as Record<string, unknown>).outputSpeech
+  );
+  const hasReprompt = !!(
+    responseNode &&
+    typeof responseNode === "object" &&
+    (responseNode as Record<string, unknown>).reprompt
+  );
   console.info(
     JSON.stringify({
       event: "alexa_audio_player_play_response_built",
@@ -604,12 +614,14 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       should_end_session: shouldEndSession,
       behavior: playSummary.play_behavior,
       expected_audio_item_id: playSummary.audio_item_token,
+      has_output_speech: hasOutputSpeech,
+      has_reprompt: hasReprompt,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
     }),
   );
 
-  if (!hasAudioPlayerPlay || shouldEndSession !== true) {
+  if (!hasAudioPlayerPlay || shouldEndSession !== true || hasOutputSpeech || hasReprompt) {
     console.warn(
       JSON.stringify({
         event: "prototype_skill_play_response_invalid",
@@ -621,6 +633,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
         should_end_session: shouldEndSession,
         behavior: playSummary.play_behavior,
         expected_audio_item_id: playSummary.audio_item_token,
+        has_output_speech: hasOutputSpeech,
+        has_reprompt: hasReprompt,
       }),
     );
     const invalidPayload = buildAlexaSpeechResponse("Playback response invalid.");
@@ -639,6 +653,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       should_end_session: shouldEndSession,
       behavior: playSummary.play_behavior,
       expected_audio_item_id: playSummary.audio_item_token,
+      has_output_speech: hasOutputSpeech,
+      has_reprompt: hasReprompt,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
     }),
