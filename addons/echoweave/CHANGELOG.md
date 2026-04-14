@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.45] - 2026-04-14
+
+### Fixed
+
+- Republish add-on package so Home Assistant update channel picks up the latest Alexa stream-stability fixes from `0.3.44`.
+- Includes session-context-first stream resolution and suppression of legacy Alexa direct-play URL injection attempts.
+
 ## [0.3.44] - 2026-04-14
 
 ### Fixed
