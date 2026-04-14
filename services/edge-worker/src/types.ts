@@ -87,6 +87,7 @@ export interface StreamTokenClaims {
   origin_stream_path: string;
   client_profile?: string;
   origin_source_url?: string;
+  play_request_id?: string;
   exp: number;
 }
 

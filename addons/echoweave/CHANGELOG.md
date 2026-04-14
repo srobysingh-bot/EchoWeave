@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.50] - 2026-04-14
+
+### Fixed
+
+- Fix prototype-skill play response path by validating and logging the AudioPlayer contract (`AudioPlayer.Play` + `shouldEndSession: true`) before response is sent.
+- Add explicit prototype-skill play response diagnostics (`alexa_audio_player_play_response_built`, `alexa_audio_player_play_response_sent`) with safe stream URL host/path summary.
+- Add correlation fields/events between play response and first stream fetch (`play_request_id` claim, `alexa_stream_fetch_observed`) and AudioPlayer playback events handling logs.
+- Reclassify no-fetch-after-play-response failures as `prototype_skill_play_response_invalid` in post-handoff path.
+
 ## [0.3.49] - 2026-04-14
 
 ### Fixed

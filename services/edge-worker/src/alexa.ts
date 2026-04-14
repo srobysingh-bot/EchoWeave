@@ -163,6 +163,23 @@ function buildAlexaSpeechResponse(text: string, shouldEndSession = true): Record
   };
 }
 
+function summarizeStreamUrl(streamUrl: string): { host: string; path: string } {
+  try {
+    const parsed = new URL(streamUrl);
+    return { host: parsed.host, path: parsed.pathname };
+  } catch {
+    return { host: "", path: "" };
+  }
+}
+
+function shouldEndSessionFromPayload(payload: Record<string, unknown>): boolean | null {
+  const response = payload.response;
+  if (!response || typeof response !== "object") return null;
+  const value = (response as Record<string, unknown>).shouldEndSession;
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
 function hasAudioPlayerDirective(payload: Record<string, unknown>): boolean {
   const response = payload.response;
   if (!response || typeof response !== "object") return false;
@@ -274,6 +291,44 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       },
     };
     console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, request_type: "LaunchRequest", response_status: 200, speech: "Welcome to EchoWeave. Say play to start.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    return json(payload);
+  }
+
+  if (requestType.startsWith("AudioPlayer.")) {
+    const requestNode = envelope.request ?? {};
+    const token = String((requestNode as Record<string, unknown>).token ?? "");
+    if (requestType === "AudioPlayer.PlaybackStarted") {
+      console.info(
+        JSON.stringify({
+          event: "alexa_audio_player_playback_started",
+          request_id: requestId,
+          token,
+          offset_ms: (requestNode as Record<string, unknown>).offsetInMilliseconds ?? 0,
+        }),
+      );
+    } else if (requestType === "AudioPlayer.PlaybackFailed") {
+      const error = (requestNode as Record<string, unknown>).error;
+      console.warn(
+        JSON.stringify({
+          event: "alexa_audio_player_playback_failed",
+          request_id: requestId,
+          token,
+          error,
+        }),
+      );
+    }
+
+    const payload = { version: "1.0", response: {} };
+    console.info(
+      JSON.stringify({
+        event: "alexa_response_sent",
+        request_id: requestId,
+        request_type: requestType,
+        response_status: 200,
+        speech: "empty-response",
+        has_audio_player_play: false,
+      }),
+    );
     return json(payload);
   }
 
@@ -441,6 +496,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     queue_item_id: prepared.queue_item_id,
     origin_stream_path: prepared.origin_stream_path,
     client_profile: "alexa",
+    play_request_id: requestId,
     exp: nowSeconds + ttl,
   };
 
@@ -491,9 +547,53 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }));
 
   const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
+  const streamSummary = summarizeStreamUrl(streamUrl);
+
+  // Build and validate the actual AudioPlayer.Play response contract.
+  const payload = buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now.");
+  const hasAudioPlayerPlay = hasAudioPlayerDirective(payload);
+  const shouldEndSession = shouldEndSessionFromPayload(payload);
+  console.info(
+    JSON.stringify({
+      event: "alexa_audio_player_play_response_built",
+      request_id: requestId,
+      playback_session_id: playbackSessionId,
+      stream_token_id: tokenId,
+      has_audio_player_play: hasAudioPlayerPlay,
+      should_end_session: shouldEndSession,
+      stream_url_host: streamSummary.host,
+      stream_url_path: streamSummary.path,
+    }),
+  );
+
+  if (!hasAudioPlayerPlay || shouldEndSession !== true) {
+    console.warn(
+      JSON.stringify({
+        event: "prototype_skill_play_response_invalid",
+        request_id: requestId,
+        playback_session_id: playbackSessionId,
+        stream_token_id: tokenId,
+        has_audio_player_play: hasAudioPlayerPlay,
+        should_end_session: shouldEndSession,
+      }),
+    );
+    const invalidPayload = buildAlexaSpeechResponse("Playback response invalid.");
+    return json(invalidPayload, 200);
+  }
 
   // Log 9: Final success response
-  const payload = buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now.");
+  console.info(
+    JSON.stringify({
+      event: "alexa_audio_player_play_response_sent",
+      request_id: requestId,
+      playback_session_id: playbackSessionId,
+      stream_token_id: tokenId,
+      has_audio_player_play: hasAudioPlayerPlay,
+      should_end_session: shouldEndSession,
+      stream_url_host: streamSummary.host,
+      stream_url_path: streamSummary.path,
+    }),
+  );
   console.info(JSON.stringify({
     event: "alexa_response_sent",
     request_id: requestId,

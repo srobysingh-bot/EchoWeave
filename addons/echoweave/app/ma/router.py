@@ -755,7 +755,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     "status": "failed",
                     "updated_at": monotonic(),
                     "request_id": request_id,
-                    "error": "device_start_failed",
+                    "error": "prototype_skill_play_response_invalid",
                 }
                 logger.warning(
                     json.dumps(
@@ -768,6 +768,18 @@ async def ma_push_url(request: Request) -> JSONResponse:
                             "stream_start_status": stream_start_status,
                         },
                         default=str,
+                    )
+                )
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "prototype_skill_play_response_invalid",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "playback_session_id": result["playback_session_id"],
+                            "reason": "no_stream_fetch_observed_after_play_response",
+                        }
                     )
                 )
                 logger.warning(
@@ -796,7 +808,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                         default=str,
                     )
                 )
-                return JSONResponse(content={"status": "error", "reason": "device_start_failed"}, status_code=502)
+                return JSONResponse(content={"status": "error", "reason": "prototype_skill_play_response_invalid"}, status_code=502)
 
             logger.info(
                 json.dumps(

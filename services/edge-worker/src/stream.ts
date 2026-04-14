@@ -40,6 +40,7 @@ export async function handleStreamRequestWithContext(
   console.info(JSON.stringify({
     event: "stream_proxy_token_verified",
     request_id: requestId,
+    play_request_id: claims.play_request_id ?? "",
     token_id: claims.token_id,
     tenant_id: claims.tenant_id,
     home_id: claims.home_id,
@@ -289,6 +290,7 @@ export async function handleStreamRequestWithContext(
   console.info(JSON.stringify({
     event: "worker_stream_fetch_started",
     request_id: requestId,
+    play_request_id: claims.play_request_id ?? "",
     token_id: claims.token_id,
     playback_session_id: claims.playback_session_id,
     queue_id: claims.queue_id,
@@ -296,6 +298,18 @@ export async function handleStreamRequestWithContext(
     upstream_url: upstreamUrl.toString(),
     client_profile: claims.client_profile ?? "",
   }));
+
+  console.info(
+    JSON.stringify({
+      event: "alexa_stream_fetch_observed",
+      request_id: requestId,
+      play_request_id: claims.play_request_id ?? "",
+      token_id: claims.token_id,
+      playback_session_id: claims.playback_session_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+    }),
+  );
 
   // --- Fetch from add-on edge stream route ---
   const upstreamStart = Date.now();
