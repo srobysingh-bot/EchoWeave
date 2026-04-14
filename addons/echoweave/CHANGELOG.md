@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.49] - 2026-04-14
+
+### Fixed
+
+- Remove Alexa post-handoff dependence on MA control start commands (`player_queues/play`, `players/cmd/play`) in `/ma/push-url` flow.
+- Enforce strict proof-based success for Alexa start: require real stream fetch observation before returning success.
+- Add explicit Alexa start confirmation/failure logs (`alexa_audio_player_play_sent`, `alexa_audio_player_playback_started`, `alexa_audio_player_playback_failed`, `alexa_stream_fetch_observed`, `alexa_start_nonfatal_removed`).
+
 ## [0.3.48] - 2026-04-14
 
 ### Fixed

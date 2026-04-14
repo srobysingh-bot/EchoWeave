@@ -712,51 +712,14 @@ async def ma_push_url(request: Request) -> JSONResponse:
             logger.info(
                 json.dumps(
                     {
-                        "event": "alexa_play_directive_sent",
+                        "event": "alexa_audio_player_play_sent",
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": resolved_player_id,
                         "playback_session_id": result["playback_session_id"],
                         "stream_token_id": result["stream_token_id"],
                         "playback_url": final_playback_url,
-                    }
-                )
-            )
-
-            ok, message, details = await ma_client.handoff_playback_url(
-                player_id=resolved_player_id,
-                playback_url=final_playback_url,
-                preferred_queue_id=preferred_queue_id,
-                request_id=request_id,
-                home_id=home_id,
-                require_direct_url=True,
-            )
-
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "alexa_play_directive_result",
-                        "request_id": request_id,
-                        "home_id": home_id,
-                        "player_id": resolved_player_id,
-                        "playback_session_id": result["playback_session_id"],
-                        "ok": ok,
-                        "message": message,
-                        "details": details,
-                    },
-                    default=str,
-                )
-            )
-
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "alexa_start_final_result",
-                        "request_id": request_id,
-                        "home_id": home_id,
-                        "player_id": resolved_player_id,
-                        "ok": ok,
-                        "message": message,
+                        "source": "prototype_skill_path",
                     }
                 )
             )
@@ -772,26 +735,6 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     }
                 )
             )
-
-            if not ok:
-                _PUSH_URL_SESSION_CACHE[coalesce_key] = {
-                    "status": "failed",
-                    "updated_at": monotonic(),
-                    "request_id": request_id,
-                    "error": message,
-                }
-                logger.warning(
-                    json.dumps(
-                        {
-                            "event": "ma_push_url_failure",
-                            "request_id": request_id,
-                            "reason": "device_start_failed",
-                            "details": message,
-                            "playback_session_id": result["playback_session_id"],
-                        }
-                    )
-                )
-                return JSONResponse(content={"status": "error", "reason": "device_start_failed"}, status_code=502)
 
             stream_started = False
             stream_start_status: dict[str, Any] = {}
@@ -814,6 +757,19 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     "request_id": request_id,
                     "error": "device_start_failed",
                 }
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "alexa_audio_player_playback_failed",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "playback_session_id": result["playback_session_id"],
+                            "stream_start_status": stream_start_status,
+                        },
+                        default=str,
+                    )
+                )
                 logger.warning(
                     json.dumps(
                         {
@@ -845,6 +801,19 @@ async def ma_push_url(request: Request) -> JSONResponse:
             logger.info(
                 json.dumps(
                     {
+                        "event": "alexa_stream_fetch_observed",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                        "stream_start_status": stream_start_status,
+                    },
+                    default=str,
+                )
+            )
+            logger.info(
+                json.dumps(
+                    {
                         "event": "alexa_start_stream_fetch_observed",
                         "request_id": request_id,
                         "home_id": home_id,
@@ -853,6 +822,17 @@ async def ma_push_url(request: Request) -> JSONResponse:
                         "stream_start_status": stream_start_status,
                     },
                     default=str,
+                )
+            )
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_audio_player_playback_started",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                    }
                 )
             )
             logger.info(
