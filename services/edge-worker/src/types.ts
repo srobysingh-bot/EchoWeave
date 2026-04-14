@@ -85,6 +85,7 @@ export interface StreamTokenClaims {
   queue_id: string;
   queue_item_id: string;
   origin_stream_path: string;
+  client_profile?: string;
   origin_source_url?: string;
   exp: number;
 }

@@ -234,6 +234,9 @@ export async function handleStreamRequestWithContext(
     "x-edge-playback-session-id": claims.playback_session_id,
     "x-request-id": requestId,
   };
+  if (claims.client_profile) {
+    upstreamHeaders["x-edge-client-profile"] = claims.client_profile;
+  }
   const rangeHeader = request.headers.get("range");
   if (rangeHeader) upstreamHeaders["range"] = rangeHeader;
   const ifRangeHeader = request.headers.get("if-range");
@@ -255,6 +258,18 @@ export async function handleStreamRequestWithContext(
     has_edge_signature: true,
     has_range: !!rangeHeader,
     has_if_range: !!ifRangeHeader,
+    client_profile: claims.client_profile ?? "",
+  }));
+
+  console.info(JSON.stringify({
+    event: "worker_stream_fetch_started",
+    request_id: requestId,
+    token_id: claims.token_id,
+    playback_session_id: claims.playback_session_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
+    upstream_url: upstreamUrl.toString(),
+    client_profile: claims.client_profile ?? "",
   }));
 
   // --- Fetch from add-on edge stream route ---
@@ -267,6 +282,17 @@ export async function handleStreamRequestWithContext(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
+    console.warn(JSON.stringify({
+      event: "worker_stream_fetch_failed",
+      request_id: requestId,
+      token_id: claims.token_id,
+      playback_session_id: claims.playback_session_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      reason: "fetch_exception",
+      upstream_url: upstreamUrl.toString(),
+      error: message,
+    }));
     console.warn(JSON.stringify({
       event: "stream_proxy_failed",
       request_id: requestId,
@@ -292,7 +318,30 @@ export async function handleStreamRequestWithContext(
     first_byte_ms: firstByteMs,
   }));
 
+  console.info(JSON.stringify({
+    event: "worker_stream_first_byte_sent",
+    request_id: requestId,
+    token_id: claims.token_id,
+    playback_session_id: claims.playback_session_id,
+    queue_id: claims.queue_id,
+    queue_item_id: claims.queue_item_id,
+    first_byte_ms: firstByteMs,
+    upstream_status: upstream.status,
+    content_type: upstream.headers.get("content-type") ?? "",
+  }));
+
   if (!upstream.ok && upstream.status !== 206) {
+    console.warn(JSON.stringify({
+      event: "worker_stream_fetch_failed",
+      request_id: requestId,
+      token_id: claims.token_id,
+      playback_session_id: claims.playback_session_id,
+      queue_id: claims.queue_id,
+      queue_item_id: claims.queue_item_id,
+      reason: "bad_status",
+      upstream_status: upstream.status,
+      content_type: upstream.headers.get("content-type") ?? "",
+    }));
     console.warn(
       JSON.stringify({
         event: "stream_proxy_failed",

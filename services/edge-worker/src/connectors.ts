@@ -244,6 +244,7 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
       queue_id: queueId,
       queue_item_id: queueItemId,
       origin_stream_path: originStreamPath,
+      client_profile: "alexa",
       exp: nowSeconds + ttl,
     };
 

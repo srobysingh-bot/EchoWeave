@@ -174,6 +174,22 @@ function hasAudioPlayerDirective(payload: Record<string, unknown>): boolean {
   });
 }
 
+function isQueueUnavailableError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("queue_empty") ||
+    normalized.includes("no_resolved_queue_id") ||
+    normalized.includes("no active queue available") ||
+    normalized.includes("no playable queue item available") ||
+    normalized.includes("active speaker queue") ||
+    normalized.includes("queue unavailable")
+  );
+}
+
+function buildTextResponse(text: string): Record<string, unknown> {
+  return buildAlexaSpeechResponse(text);
+}
+
 export async function handleAlexaWebhook(request: Request, env: Env): Promise<Response> {
   return handleAlexaWebhookWithContext(request, env, request.headers.get("x-request-id") ?? crypto.randomUUID());
 }
@@ -338,8 +354,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     let doErrorText = "";
     try {
       doErrorText = await doResp.clone().text();
-      const errorPayload = (JSON.parse(doErrorText) as { error?: string }) ?? {};
-      const rawError = String(errorPayload.error ?? "");
+      const errorPayload = (JSON.parse(doErrorText) as { error?: unknown }) ?? {};
+      const rawError = typeof errorPayload.error === "string" ? errorPayload.error : JSON.stringify(errorPayload.error ?? "");
       let parsedConnectorError = rawError;
       try {
         const nested = JSON.parse(rawError) as { code?: string; message?: string };
@@ -347,6 +363,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       } catch {
         // keep raw connector error text
       }
+      const connectorErrorBlob = [doErrorText, rawError, parsedConnectorError].filter(Boolean).join("\n");
       console.warn(
         JSON.stringify({
           event: "connector_dispatch_failed",
@@ -360,20 +377,32 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       );
       if (parsedConnectorError.includes("play_start_failed")) {
         const speech = "I found the track, but playback could not be started.";
-        const payload = buildAlexaSpeechResponse(speech);
+        const payload = buildTextResponse(speech);
         console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
         return json(payload, 200);
       }
       if (parsedConnectorError.includes("query_no_match")) {
         const speech = "I could not find a playable result for that request.";
-        const payload = buildAlexaSpeechResponse(speech);
+        const payload = buildTextResponse(speech);
         console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
         return json(payload, 200);
       }
-      if ((errorPayload.error ?? "").includes("timeout")) {
+      if (isQueueUnavailableError(connectorErrorBlob)) {
+        const speech = "I could not find an active speaker queue in Music Assistant to play this on.";
+        const payload = buildTextResponse(speech);
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+        return json(payload, 200);
+      }
+      if (connectorErrorBlob.includes("timeout")) {
         console.warn(JSON.stringify({ event: "connector_dispatch_timeout", request_id: requestId, tenant_id: home.tenant_id, home_id: home.home_id }));
       }
     } catch {
+      if (isQueueUnavailableError(doErrorText)) {
+        const speech = "I could not find an active speaker queue in Music Assistant to play this on.";
+        const payload = buildTextResponse(speech);
+        console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech, has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+        return json(payload, 200);
+      }
       console.warn(
         JSON.stringify({
           event: "connector_dispatch_failed",
@@ -411,6 +440,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     queue_id: prepared.queue_id,
     queue_item_id: prepared.queue_item_id,
     origin_stream_path: prepared.origin_stream_path,
+    client_profile: "alexa",
     exp: nowSeconds + ttl,
   };
 

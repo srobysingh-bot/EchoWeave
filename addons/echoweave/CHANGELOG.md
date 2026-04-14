@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.40] - 2026-04-14
+
+### Fixed
+
+- Add Alexa client profile propagation through stream tokens and worker-to-add-on fetch headers to select Alexa-compatible stream responses without changing tokenized stream architecture.
+- Add Alexa stream compatibility probing on add-on edge stream path, preferring MP3/AAC candidate URLs and rejecting unsupported content types for Alexa profile requests.
+- Add stream diagnostics for format and fetch lifecycle (`alexa_stream_format_selected`, `alexa_stream_transcode_started`, `alexa_stream_response_content_type`, `worker_stream_fetch_started`, `worker_stream_first_byte_sent`, `worker_stream_fetch_failed`).
+
 ## [0.3.39] - 2026-04-14
 
 ### Fixed
