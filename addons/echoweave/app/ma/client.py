@@ -1536,6 +1536,22 @@ class MusicAssistantClient:
                     )
                 )
 
+                validated_active_queue_id = ""
+                for active_candidate in [
+                    active_queue_id,
+                    self._sanitize_queue_id(reported_player_id, source="handoff_playback_url.reported_player_id") or "",
+                    self._sanitize_queue_id(str(target_player.get("queue_id") or ""), source="handoff_playback_url.player_queue_id") or "",
+                ]:
+                    if not active_candidate:
+                        continue
+                    try:
+                        active_state = await self.get_queue_state(active_candidate)
+                        if isinstance(active_state, dict) and bool(active_state):
+                            validated_active_queue_id = active_candidate
+                            break
+                    except Exception:
+                        continue
+
                 def _queue_media_payloads(selected_queue_id: str) -> list[tuple[dict[str, Any], str]]:
                     # Newer MA builds expect `media` on player_queues/play_media.
                     # Keep a legacy uri/media_type payload last for older variants.
@@ -1601,8 +1617,8 @@ class MusicAssistantClient:
                             queue_exists = False
                             queue_lookup_error = str(exc)
 
-                        queue_matches_active = bool(active_queue_id) and queue_id == active_queue_id
-                        if queue_exists and (not active_queue_id or queue_matches_active):
+                        queue_matches_active = bool(validated_active_queue_id) and queue_id == validated_active_queue_id
+                        if queue_exists and (not validated_active_queue_id or queue_matches_active):
                             validated_alexa_queue_id = queue_id
                             logger.info(
                                 json.dumps(
@@ -1612,6 +1628,7 @@ class MusicAssistantClient:
                                         "home_id": home_id,
                                         "player_id": target_player_id,
                                         "queue_id": queue_id,
+                                        "validated_active_queue_id": validated_active_queue_id,
                                         "queue_matches_active": queue_matches_active,
                                     }
                                 )
@@ -1625,13 +1642,30 @@ class MusicAssistantClient:
                                         "home_id": home_id,
                                         "player_id": target_player_id,
                                         "queue_id": queue_id,
-                                        "active_queue_id": active_queue_id,
+                                        "active_queue_id": validated_active_queue_id or active_queue_id,
                                         "queue_exists": queue_exists,
                                         "queue_matches_active": queue_matches_active,
                                         "queue_lookup_error": queue_lookup_error,
                                     }
                                 )
                             )
+
+                    if not validated_alexa_queue_id and validated_active_queue_id:
+                        validated_alexa_queue_id = validated_active_queue_id
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "alexa_start_queue_validated",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "queue_id": validated_alexa_queue_id,
+                                    "validated_active_queue_id": validated_active_queue_id,
+                                    "queue_matches_active": True,
+                                    "reason": "fallback_to_validated_active_queue",
+                                }
+                            )
+                        )
 
                     if validated_alexa_queue_id:
                         attempts.append(
@@ -1650,7 +1684,7 @@ class MusicAssistantClient:
                                     "home_id": home_id,
                                     "player_id": target_player_id,
                                     "queue_id": queue_id,
-                                    "active_queue_id": active_queue_id,
+                                    "active_queue_id": validated_active_queue_id or active_queue_id,
                                 }
                             )
                         )
@@ -1871,19 +1905,12 @@ class MusicAssistantClient:
                                 "home_id": home_id,
                                 "player_id": target_player_id,
                                 "ok": False,
-                                "result": "non_fatal_start_failure",
+                                "result": "playback_start_failed",
                                 "queue_id": queue_id,
-                                "active_queue_id": active_queue_id,
+                                "active_queue_id": validated_active_queue_id or active_queue_id,
                             }
                         )
                     )
-                    return True, "playback-start-nonfatal", {
-                        "player_id": target_player_id,
-                        "queue_id": queue_id,
-                        "active_queue_id": active_queue_id,
-                        "non_fatal_start_failure": True,
-                        "rollback_player_only": True,
-                    }
 
                 fail_message = "direct-url-play-failed" if require_direct_url else "play-media-command-failed"
                 return False, fail_message, {

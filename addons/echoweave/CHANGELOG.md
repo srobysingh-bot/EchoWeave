@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.47] - 2026-04-14
+
+### Fixed
+
+- Enforce strict Alexa post-handoff start success rule: `/ma/push-url` only returns success after real Worker stream fetch observation for the session.
+- Remove non-fatal accepted path for failed post-handoff start attempts; failed start now reports `device_start_failed` with explicit `alexa_start_playback_failed` diagnostics.
+- Validate queue resume target against player active queue context before `player_queues/play` in Alexa path; skip invalid/generated queue ids and log queue mismatch decisions.
+- Add explicit Alexa start decision logs (`alexa_start_stream_fetch_observed`, `alexa_start_playback_started`, `alexa_start_playback_failed`).
+
 ## [0.3.46] - 2026-04-14
 
 ### Fixed
