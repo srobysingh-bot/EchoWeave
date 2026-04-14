@@ -5,8 +5,10 @@ Handles inbound requests from Music Assistant, such as push-url notifications.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from time import monotonic
 from typing import Any
 from urllib.parse import quote, unquote, urlparse, urlunparse
 from uuid import uuid4
@@ -22,6 +24,121 @@ from app.ma.stream_resolver import is_valid_alexa_stream_url
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ma", tags=["ma"])
+
+_PUSH_URL_COALESCE_WINDOW_SEC = 8.0
+_PUSH_URL_PLAYER_LOCKS: dict[str, asyncio.Lock] = {}
+_PUSH_URL_SESSION_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _get_push_url_player_lock(coalesce_key: str) -> asyncio.Lock:
+    lock = _PUSH_URL_PLAYER_LOCKS.get(coalesce_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _PUSH_URL_PLAYER_LOCKS[coalesce_key] = lock
+    return lock
+
+
+def _is_alexa_like_player(player: dict[str, Any] | None) -> bool:
+    if not isinstance(player, dict):
+        return False
+    fields = [
+        str(player.get("provider") or ""),
+        str(player.get("source") or ""),
+        str(player.get("platform") or ""),
+        str(player.get("player_id") or ""),
+        str(player.get("name") or ""),
+    ]
+    blob = " ".join(fields).lower()
+    return ("alexa" in blob) or ("echo" in blob)
+
+
+def _is_alexa_request(body: dict[str, Any], matched_player: dict[str, Any] | None) -> bool:
+    provider_hint = str(
+        body.get("provider")
+        or body.get("source")
+        or body.get("integration")
+        or ""
+    ).strip().lower()
+    if provider_hint == "alexa":
+        return True
+    return _is_alexa_like_player(matched_player)
+
+
+async def _readback_player_state(
+    *,
+    ma_client: Any,
+    player_id: str,
+    preferred_queue_id: str,
+    request_id: str,
+    home_id: str,
+    reused_session: bool,
+) -> dict[str, Any]:
+    playback_state = ""
+    current_media_title = ""
+    queue_length = 0
+    queue_id = ""
+    queue_readback_error = ""
+
+    players = await ma_client.get_players()
+    target_player = next(
+        (
+            player
+            for player in players
+            if str(player.get("player_id") or player.get("id") or "").strip() == player_id
+        ),
+        {},
+    )
+
+    playback_state = str(target_player.get("state") or "")
+    current_media = target_player.get("current_media") or {}
+    if isinstance(current_media, dict):
+        current_media_title = str(current_media.get("title") or current_media.get("name") or "")
+
+    queue_candidates = [
+        preferred_queue_id,
+        str(target_player.get("active_queue") or ""),
+        str(target_player.get("active_source") or ""),
+        str(target_player.get("queue_id") or ""),
+    ]
+    for candidate in queue_candidates:
+        candidate_value = str(candidate or "").strip()
+        if candidate_value:
+            queue_id = candidate_value
+            break
+
+    if queue_id:
+        try:
+            queue_items = await ma_client.get_queue_items(
+                queue_id,
+                request_id=request_id,
+                home_id=home_id,
+                player_id=player_id,
+            )
+            queue_length = len(queue_items)
+        except Exception as exc:
+            queue_readback_error = str(exc)
+
+    snapshot = {
+        "player_id": player_id,
+        "playback_state": playback_state,
+        "current_media_title": current_media_title,
+        "queue_length": queue_length,
+        "queue_id": queue_id,
+        "queue_readback_error": queue_readback_error,
+        "reused_session": reused_session,
+    }
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "ma_push_url_session_start_final",
+                "request_id": request_id,
+                "home_id": home_id,
+                **snapshot,
+            }
+        )
+    )
+    return snapshot
 
 
 def _extract_flow_parts(stream_url: str) -> dict[str, str]:
@@ -271,29 +388,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
         )
         return JSONResponse(content={"status": "error", "reason": "service_unavailable"}, status_code=503)
 
-    try:
-        public_playback_url = _build_public_playback_url(stream_url, config_service.settings)
-        logger.info(
-            json.dumps(
-                {
-                    "event": "ma_push_url_public_url_built",
-                    "request_id": request_id,
-                    "public_playback_url": public_playback_url,
-                }
-            )
-        )
-    except Exception as exc:
-        logger.warning(
-            json.dumps(
-                {
-                    "event": "ma_push_url_failure",
-                    "request_id": request_id,
-                    "reason": "public_url_build_failed",
-                    "details": str(exc),
-                }
-            )
-        )
-        return JSONResponse(content={"status": "error", "reason": "public_url_build_failed"}, status_code=422)
+    public_playback_url = ""
 
     try:
         players = await ma_client.get_players()
@@ -345,10 +440,232 @@ async def ma_push_url(request: Request) -> JSONResponse:
         )
         return JSONResponse(content={"status": "error", "reason": "player_not_found"}, status_code=404)
 
-    final_playback_url = public_playback_url
+    home_id = str(getattr(config_service.settings, "home_id", "") or "")
+    preferred_queue_id = str(flow.get("session_id") or "")
+    is_edge_mode = bool(getattr(config_service.settings, "is_edge_mode", False))
+    alexa_request = _is_alexa_request(body, matched_player)
+
+    final_playback_url = ""
     worker_handoff_details: dict[str, Any] = {}
     flow_title = str(body.get("title") or body.get("name") or flow.get("item_id", ""))
-    if getattr(config_service.settings, "is_edge_mode", False):
+
+    if alexa_request:
+        if not is_edge_mode:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_push_url_failure",
+                        "request_id": request_id,
+                        "reason": "worker_handoff_required_for_alexa",
+                        "player_id": resolved_player_id,
+                    }
+                )
+            )
+            return JSONResponse(
+                content={"status": "error", "reason": "worker_handoff_required_for_alexa"},
+                status_code=502,
+            )
+
+        coalesce_key = f"{home_id}:{resolved_player_id}"
+        coalesce_lock = _get_push_url_player_lock(coalesce_key)
+        async with coalesce_lock:
+            cache_entry = _PUSH_URL_SESSION_CACHE.get(coalesce_key) or {}
+            age = monotonic() - float(cache_entry.get("updated_at", 0.0) or 0.0)
+            if (
+                cache_entry.get("status") == "succeeded"
+                and age <= _PUSH_URL_COALESCE_WINDOW_SEC
+            ):
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_duplicate_coalesced",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "coalesce_key": coalesce_key,
+                            "age_seconds": round(age, 3),
+                        }
+                    )
+                )
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_existing_session_reused",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "playback_session_id": cache_entry.get("playback_session_id", ""),
+                            "stream_token_id": cache_entry.get("stream_token_id", ""),
+                        }
+                    )
+                )
+
+                reused_snapshot = await _readback_player_state(
+                    ma_client=ma_client,
+                    player_id=resolved_player_id,
+                    preferred_queue_id=preferred_queue_id,
+                    request_id=request_id,
+                    home_id=home_id,
+                    reused_session=True,
+                )
+                result = {
+                    **(cache_entry.get("result") or {}),
+                    "reused_session": True,
+                    "player_snapshot": reused_snapshot,
+                }
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_session_start_accepted",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "reused_session": True,
+                            "status_code": 202,
+                        }
+                    )
+                )
+                return JSONResponse(
+                    content={
+                        "status": "accepted",
+                        "request_id": request_id,
+                        "player_id": resolved_player_id,
+                        "result": result,
+                    },
+                    status_code=202,
+                )
+
+            _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                "status": "running",
+                "updated_at": monotonic(),
+                "request_id": request_id,
+            }
+
+            try:
+                worker_handoff_details = await _request_worker_handoff(
+                    request_id=request_id,
+                    settings=config_service.settings,
+                    flow=flow,
+                    player_id=resolved_player_id,
+                    title=flow_title,
+                )
+            except Exception as exc:
+                _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                    "status": "failed",
+                    "updated_at": monotonic(),
+                    "request_id": request_id,
+                    "error": str(exc),
+                }
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_failure",
+                            "request_id": request_id,
+                            "reason": "worker_handoff_failed",
+                            "details": str(exc),
+                        }
+                    )
+                )
+                return JSONResponse(content={"status": "error", "reason": "worker_handoff_failed"}, status_code=502)
+
+            final_playback_url = str(worker_handoff_details.get("stream_url") or "").strip()
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "ma_push_url_legacy_fallback_suppressed",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "suppressed_commands": [
+                            "player_queues/play_media",
+                            "players/play_media",
+                            "public_flow_fallback",
+                        ],
+                        "worker_stream_url": final_playback_url,
+                    }
+                )
+            )
+
+            result = {
+                "mode": "worker_handoff_only",
+                "player_id": resolved_player_id,
+                "queue_id": preferred_queue_id,
+                "playback_url": final_playback_url,
+                "playback_session_id": str(worker_handoff_details.get("playback_session_id") or ""),
+                "stream_token_id": str(worker_handoff_details.get("stream_token_id") or ""),
+                "reused_session": False,
+            }
+
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "ma_push_url_session_start_accepted",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "reused_session": False,
+                        "status_code": 200,
+                    }
+                )
+            )
+
+            snapshot = await _readback_player_state(
+                ma_client=ma_client,
+                player_id=resolved_player_id,
+                preferred_queue_id=preferred_queue_id,
+                request_id=request_id,
+                home_id=home_id,
+                reused_session=False,
+            )
+            result["player_snapshot"] = snapshot
+
+            _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                "status": "succeeded",
+                "updated_at": monotonic(),
+                "request_id": request_id,
+                "playback_session_id": result["playback_session_id"],
+                "stream_token_id": result["stream_token_id"],
+                "result": result,
+            }
+
+            return JSONResponse(
+                content={
+                    "status": "ok",
+                    "request_id": request_id,
+                    "player_id": resolved_player_id,
+                    "public_playback_url": final_playback_url,
+                    "result": result,
+                },
+                status_code=200,
+            )
+
+    try:
+        public_playback_url = _build_public_playback_url(stream_url, config_service.settings)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ma_push_url_public_url_built",
+                    "request_id": request_id,
+                    "public_playback_url": public_playback_url,
+                }
+            )
+        )
+    except Exception as exc:
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "ma_push_url_failure",
+                    "request_id": request_id,
+                    "reason": "public_url_build_failed",
+                    "details": str(exc),
+                }
+            )
+        )
+        return JSONResponse(content={"status": "error", "reason": "public_url_build_failed"}, status_code=422)
+
+    final_playback_url = public_playback_url
+
+    if is_edge_mode:
         try:
             worker_handoff_details = await _request_worker_handoff(
                 request_id=request_id,
@@ -379,17 +696,17 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "player_id": resolved_player_id,
                 "public_playback_url": public_playback_url,
                 "final_playback_url": final_playback_url,
-                "preferred_queue_id": str(flow.get("session_id") or ""),
+                "preferred_queue_id": preferred_queue_id,
             }
         )
     )
     ok, message, details = await ma_client.handoff_playback_url(
         player_id=resolved_player_id,
         playback_url=final_playback_url,
-        preferred_queue_id=str(flow.get("session_id") or ""),
+        preferred_queue_id=preferred_queue_id,
         request_id=request_id,
-        home_id=str(getattr(config_service.settings, "home_id", "") or ""),
-        require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),
+        home_id=home_id,
+        require_direct_url=is_edge_mode,
     )
 
     if (
@@ -411,10 +728,10 @@ async def ma_push_url(request: Request) -> JSONResponse:
         retry_ok, retry_message, retry_details = await ma_client.handoff_playback_url(
             player_id=resolved_player_id,
             playback_url=public_playback_url,
-            preferred_queue_id=str(flow.get("session_id") or ""),
+            preferred_queue_id=preferred_queue_id,
             request_id=request_id,
-            home_id=str(getattr(config_service.settings, "home_id", "") or ""),
-            require_direct_url=bool(getattr(config_service.settings, "is_edge_mode", False)),
+            home_id=home_id,
+            require_direct_url=is_edge_mode,
         )
         logger.info(
             json.dumps(
