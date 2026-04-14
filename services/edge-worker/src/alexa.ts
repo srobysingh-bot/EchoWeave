@@ -180,6 +180,45 @@ function shouldEndSessionFromPayload(payload: Record<string, unknown>): boolean 
   return null;
 }
 
+function extractAudioPlayerPlaySummary(payload: Record<string, unknown>): {
+  play_behavior: string;
+  audio_item_token: string;
+} {
+  const response = payload.response;
+  if (!response || typeof response !== "object") {
+    return { play_behavior: "", audio_item_token: "" };
+  }
+
+  const directives = (response as Record<string, unknown>).directives;
+  if (!Array.isArray(directives)) {
+    return { play_behavior: "", audio_item_token: "" };
+  }
+
+  const playDirective = directives.find((d) => {
+    if (!d || typeof d !== "object") return false;
+    return (d as Record<string, unknown>).type === "AudioPlayer.Play";
+  }) as Record<string, unknown> | undefined;
+
+  if (!playDirective) {
+    return { play_behavior: "", audio_item_token: "" };
+  }
+
+  const playBehavior = String(playDirective.playBehavior ?? "");
+  const audioItem = playDirective.audioItem;
+  let token = "";
+  if (audioItem && typeof audioItem === "object") {
+    const stream = (audioItem as Record<string, unknown>).stream;
+    if (stream && typeof stream === "object") {
+      token = String((stream as Record<string, unknown>).token ?? "");
+    }
+  }
+
+  return {
+    play_behavior: playBehavior,
+    audio_item_token: token,
+  };
+}
+
 function hasAudioPlayerDirective(payload: Record<string, unknown>): boolean {
   const response = payload.response;
   if (!response || typeof response !== "object") return false;
@@ -553,14 +592,18 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   const payload = buildAlexaAudioPlayResponse(streamUrl, prepared.queue_item_id, "Playing now.");
   const hasAudioPlayerPlay = hasAudioPlayerDirective(payload);
   const shouldEndSession = shouldEndSessionFromPayload(payload);
+  const playSummary = extractAudioPlayerPlaySummary(payload);
   console.info(
     JSON.stringify({
       event: "alexa_audio_player_play_response_built",
       request_id: requestId,
+      play_request_id: requestId,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
       has_audio_player_play: hasAudioPlayerPlay,
       should_end_session: shouldEndSession,
+      behavior: playSummary.play_behavior,
+      expected_audio_item_id: playSummary.audio_item_token,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
     }),
@@ -571,10 +614,13 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       JSON.stringify({
         event: "prototype_skill_play_response_invalid",
         request_id: requestId,
+        play_request_id: requestId,
         playback_session_id: playbackSessionId,
         stream_token_id: tokenId,
         has_audio_player_play: hasAudioPlayerPlay,
         should_end_session: shouldEndSession,
+        behavior: playSummary.play_behavior,
+        expected_audio_item_id: playSummary.audio_item_token,
       }),
     );
     const invalidPayload = buildAlexaSpeechResponse("Playback response invalid.");
@@ -586,10 +632,13 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     JSON.stringify({
       event: "alexa_audio_player_play_response_sent",
       request_id: requestId,
+      play_request_id: requestId,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
       has_audio_player_play: hasAudioPlayerPlay,
       should_end_session: shouldEndSession,
+      behavior: playSummary.play_behavior,
+      expected_audio_item_id: playSummary.audio_item_token,
       stream_url_host: streamSummary.host,
       stream_url_path: streamSummary.path,
     }),
