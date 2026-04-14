@@ -760,6 +760,18 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     }
                 )
             )
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_start_nonfatal_removed",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                        "policy": "require_stream_fetch_or_playback_started",
+                    }
+                )
+            )
 
             if not ok:
                 _PUSH_URL_SESSION_CACHE[coalesce_key] = {

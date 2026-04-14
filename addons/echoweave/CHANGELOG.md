@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.48] - 2026-04-14
+
+### Fixed
+
+- Add explicit `alexa_start_nonfatal_removed` log marker to confirm strict policy that post-handoff start is only successful after real stream-fetch/playback-start evidence.
+- Preserve strict failure behavior for post-handoff start attempts when no stream fetch confirmation is observed.
+
 ## [0.3.47] - 2026-04-14
 
 ### Fixed
