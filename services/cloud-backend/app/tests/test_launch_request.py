@@ -1,6 +1,3 @@
-import threading
-import time
-
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -86,41 +83,16 @@ def test_launch_and_play_route_to_registered_connector_with_logs(capfd):
 
         launch_resp = client.post("/v1/alexa", json=launch_body)
 
-        captured: dict[str, str] = {"command_id": ""}
-
-        def _ack_worker() -> None:
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                poll_resp = client.post(
-                    "/v1/connectors/connector-e2e-1/commands/next",
-                    json={"connector_secret": "secret-e2e"},
-                )
-                if poll_resp.status_code == 200 and poll_resp.json():
-                    payload = poll_resp.json()
-                    captured["command_id"] = payload["command_id"]
-                    client.post(
-                        f"/v1/connectors/connector-e2e-1/commands/{payload['command_id']}/ack",
-                        json={
-                            "connector_secret": "secret-e2e",
-                            "success": True,
-                            "message": "play-started",
-                            "result": {"player_id": "player-1"},
-                        },
-                    )
-                    return
-                time.sleep(0.1)
-
-        thread = threading.Thread(target=_ack_worker, daemon=True)
-        thread.start()
         play_resp = client.post("/v1/alexa", json=play_body)
-        thread.join(timeout=5)
 
     assert launch_resp.status_code == 200
     assert launch_resp.json()["response"]["outputSpeech"]["text"] == "Welcome to EchoWeave. Your connector is online."
 
     assert play_resp.status_code == 200
-    assert play_resp.json()["response"]["outputSpeech"]["text"] == "Playing now from Music Assistant."
-    assert captured["command_id"]
+    assert (
+        play_resp.json()["response"]["outputSpeech"]["text"]
+        == "Playback endpoint mismatch. Please configure your Alexa skill endpoint to the Worker /v1/alexa URL."
+    )
 
     log_output = capfd.readouterr().out
     assert "alexa_request type=LaunchRequest" in log_output
@@ -128,9 +100,6 @@ def test_launch_and_play_route_to_registered_connector_with_logs(capfd):
     assert "tenant_home_resolve tenant_id=tenant-e2e home_id=home-e2e" in log_output
     assert "connector_lookup result=found connector_id=connector-e2e-1" in log_output
     assert "connector_dispatch_attempt connector_id=connector-e2e-1 request_type=LaunchRequest" in log_output
-    assert "connector_dispatch_attempt connector_id=connector-e2e-1 request_type=IntentRequest intent=PlayIntent" in log_output
     assert "connector_dispatch_result connector_id=connector-e2e-1 success=True note=launch-routed-real" in log_output
-    assert "connector_dispatch_result connector_id=connector-e2e-1 success=True note=play-routed-acked" in log_output
-    assert "command_id=" in log_output
-    assert "connector_ack=" in log_output
+    assert "alexa_play_hard_fail reason=legacy-endpoint-disabled" in log_output
     assert "alexa_response payload=" in log_output

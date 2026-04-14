@@ -54,6 +54,10 @@ def _command_payload_summary(command_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_play_intent(request_type: str, intent_name: str) -> bool:
+    return request_type == "IntentRequest" and (intent_name == "PlayIntent" or "Play" in intent_name)
+
+
 def _extract_request_info(body: dict[str, Any]) -> dict[str, str]:
     request = body.get("request", {})
     session = body.get("session", {})
@@ -202,6 +206,20 @@ async def alexa_webhook(body: dict) -> JSONResponse:
     )
 
     try:
+        if _is_play_intent(info["request_type"], info["intent_name"]):
+            # Safety guard: legacy cloud-backend path must never act as active play ingress.
+            final_payload = _speech_response(
+                "Playback endpoint mismatch. Please configure your Alexa skill endpoint to the Worker /v1/alexa URL.",
+                should_end_session=True,
+            )
+            logger.warning(
+                "alexa_play_hard_fail reason=legacy-endpoint-disabled request_id=%s intent=%s",
+                info["request_id"],
+                info["intent_name"],
+            )
+            logger.info("alexa_response payload=%s", final_payload)
+            return JSONResponse(content=final_payload)
+
         tenant_id, home_id, source = _resolve_tenant_home(body)
         logger.info("tenant_home_resolve tenant_id=%s home_id=%s source=%s", tenant_id, home_id, source)
 
