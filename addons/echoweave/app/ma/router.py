@@ -554,6 +554,37 @@ async def ma_push_url(request: Request) -> JSONResponse:
             cache_entry = _PUSH_URL_SESSION_CACHE.get(coalesce_key) or {}
             age = monotonic() - float(cache_entry.get("updated_at", 0.0) or 0.0)
             if (
+                cache_entry.get("status") == "running"
+                and age <= _PUSH_URL_COALESCE_WINDOW_SEC
+            ):
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "alexa_start_attempt_coalesced",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "coalesce_key": coalesce_key,
+                            "age_seconds": round(age, 3),
+                            "status": "running",
+                        }
+                    )
+                )
+                return JSONResponse(
+                    content={
+                        "status": "accepted",
+                        "request_id": request_id,
+                        "player_id": resolved_player_id,
+                        "result": {
+                            "mode": "worker_handoff_only",
+                            "reused_session": True,
+                            "reason": "alexa_start_attempt_coalesced",
+                        },
+                    },
+                    status_code=202,
+                )
+
+            if (
                 cache_entry.get("status") == "succeeded"
                 and age <= _PUSH_URL_COALESCE_WINDOW_SEC
             ):
@@ -717,6 +748,19 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 )
             )
 
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_start_final_result",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "ok": ok,
+                        "message": message,
+                    }
+                )
+            )
+
             if not ok:
                 _PUSH_URL_SESSION_CACHE[coalesce_key] = {
                     "status": "failed",
@@ -736,6 +780,43 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     )
                 )
                 return JSONResponse(content={"status": "error", "reason": "device_start_failed"}, status_code=502)
+
+            if bool((details or {}).get("non_fatal_start_failure")):
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "alexa_start_attempt_coalesced",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "playback_session_id": result["playback_session_id"],
+                            "reason": "non_fatal_start_failure",
+                        }
+                    )
+                )
+                result["start_non_fatal"] = True
+                result["start_message"] = message
+                result["start_details"] = details
+
+                _PUSH_URL_SESSION_CACHE[coalesce_key] = {
+                    "status": "succeeded",
+                    "updated_at": monotonic(),
+                    "request_id": request_id,
+                    "playback_session_id": result["playback_session_id"],
+                    "stream_token_id": result["stream_token_id"],
+                    "result": result,
+                }
+
+                return JSONResponse(
+                    content={
+                        "status": "accepted",
+                        "request_id": request_id,
+                        "player_id": resolved_player_id,
+                        "public_playback_url": final_playback_url,
+                        "result": result,
+                    },
+                    status_code=202,
+                )
 
             stream_started = False
             stream_start_status: dict[str, Any] = {}

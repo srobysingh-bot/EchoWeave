@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.46] - 2026-04-14
+
+### Fixed
+
+- Validate Alexa start queue before `player_queues/play` and skip invalid/generated queue ids that do not match the player active queue context.
+- Prevent `/ma/push-url` fatal failure loop when post-handoff Alexa resume/play fails due queue mismatch; coalesce and keep session stable instead of triggering repeated new handoffs.
+- Add Alexa start diagnostics for queue validation/coalescing path (`alexa_start_queue_validated`, `alexa_start_queue_mismatch`, `alexa_start_player_active_queue`, `alexa_start_attempt_skipped_invalid_queue`, `alexa_start_attempt_coalesced`, `alexa_start_final_result`).
+
 ## [0.3.45] - 2026-04-14
 
 ### Fixed

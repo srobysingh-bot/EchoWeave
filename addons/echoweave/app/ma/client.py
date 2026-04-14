@@ -1520,6 +1520,22 @@ class MusicAssistantClient:
                     if normalized and normalized not in command_queue_ids:
                         command_queue_ids.append(normalized)
 
+                active_queue_id = self._sanitize_queue_id(active_queue, source="handoff_playback_url.active_queue") or ""
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "alexa_start_player_active_queue",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": target_player_id,
+                            "active_queue": active_queue,
+                            "active_queue_id": active_queue_id,
+                            "preferred_queue_id": preferred_queue_id,
+                            "candidate_queue_id": queue_id,
+                        }
+                    )
+                )
+
                 def _queue_media_payloads(selected_queue_id: str) -> list[tuple[dict[str, Any], str]]:
                     # Newer MA builds expect `media` on player_queues/play_media.
                     # Keep a legacy uri/media_type payload last for older variants.
@@ -1574,14 +1590,71 @@ class MusicAssistantClient:
                         )
                     )
 
+                    validated_alexa_queue_id = ""
                     if queue_id:
+                        queue_exists = False
+                        queue_lookup_error = ""
+                        try:
+                            _validated_queue_state = await self.get_queue_state(queue_id)
+                            queue_exists = isinstance(_validated_queue_state, dict) and bool(_validated_queue_state)
+                        except Exception as exc:
+                            queue_exists = False
+                            queue_lookup_error = str(exc)
+
+                        queue_matches_active = bool(active_queue_id) and queue_id == active_queue_id
+                        if queue_exists and (not active_queue_id or queue_matches_active):
+                            validated_alexa_queue_id = queue_id
+                            logger.info(
+                                json.dumps(
+                                    {
+                                        "event": "alexa_start_queue_validated",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": target_player_id,
+                                        "queue_id": queue_id,
+                                        "queue_matches_active": queue_matches_active,
+                                    }
+                                )
+                            )
+                        else:
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "alexa_start_queue_mismatch",
+                                        "request_id": request_id,
+                                        "home_id": home_id,
+                                        "player_id": target_player_id,
+                                        "queue_id": queue_id,
+                                        "active_queue_id": active_queue_id,
+                                        "queue_exists": queue_exists,
+                                        "queue_matches_active": queue_matches_active,
+                                        "queue_lookup_error": queue_lookup_error,
+                                    }
+                                )
+                            )
+
+                    if validated_alexa_queue_id:
                         attempts.append(
                             (
                                 ["player_queues/play", "playerqueues/play"],
-                                {"queue_id": queue_id},
+                                {"queue_id": validated_alexa_queue_id},
                                 "queue_resume_play",
                             )
                         )
+                    else:
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "alexa_start_attempt_skipped_invalid_queue",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": target_player_id,
+                                    "queue_id": queue_id,
+                                    "active_queue_id": active_queue_id,
+                                }
+                            )
+                        )
+
                     attempts.append(
                         (
                             ["players/cmd/play"],
@@ -1788,6 +1861,29 @@ class MusicAssistantClient:
                                 }
                             )
                         )
+
+                if alexa_like:
+                    logger.warning(
+                        json.dumps(
+                            {
+                                "event": "alexa_start_final_result",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": target_player_id,
+                                "ok": False,
+                                "result": "non_fatal_start_failure",
+                                "queue_id": queue_id,
+                                "active_queue_id": active_queue_id,
+                            }
+                        )
+                    )
+                    return True, "playback-start-nonfatal", {
+                        "player_id": target_player_id,
+                        "queue_id": queue_id,
+                        "active_queue_id": active_queue_id,
+                        "non_fatal_start_failure": True,
+                        "rollback_player_only": True,
+                    }
 
                 fail_message = "direct-url-play-failed" if require_direct_url else "play-media-command-failed"
                 return False, fail_message, {
