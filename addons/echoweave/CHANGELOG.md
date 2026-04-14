@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.51] - 2026-04-14
+
+### Fixed
+
+- Republish add-on release with latest prototype-skill playback response path fixes.
+- Includes strict AudioPlayer.Play response contract checks, response/fetch correlation telemetry, and no-fetch classification as `prototype_skill_play_response_invalid`.
+
 ## [0.3.50] - 2026-04-14
 
 ### Fixed
