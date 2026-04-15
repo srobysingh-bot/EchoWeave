@@ -162,6 +162,7 @@ python -m pytest app/tests/ -v
 - Worker Alexa signature verification performs cert URL validation, cert fetch/parsing, SAN/time checks, request timestamp checks, and RSA-SHA1 verification against the exact request body.
 - **Session store is JSON-file-backed** (not a database) — suitable for single-device testing but not recommended for production multi-user deployments.
 - **No multi-user / multi-device concurrent testing yet** — limited isolation between simultaneous Alexa device sessions.
+- **Alexa UI-start requires active skill context:** A Music Assistant UI click alone cannot use prototype-skill `AudioPlayer.Play` delivery. Without active Alexa request context (`inbound_request_id` or recent `/alexa/intents` probe), `/ma/push-url` returns `ui_play_requires_active_alexa_skill_session` and does not attempt worker handoff/prototype response playback.
 
 ### Why Setup Shows "ASK Setup" as Optional
 

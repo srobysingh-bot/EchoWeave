@@ -196,6 +196,11 @@ def test_ma_push_url_rejects_prototype_skill_without_active_context(monkeypatch)
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(ma_router, "logger", capture_logger)
 
+    async def _fail_if_worker_handoff_called(**kwargs):
+        raise AssertionError("worker handoff must not run when Alexa request context is missing")
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fail_if_worker_handoff_called)
+
     app = create_app()
     with TestClient(app) as client:
         registry.register("config_service", _FakeConfigService())
@@ -215,10 +220,56 @@ def test_ma_push_url_rejects_prototype_skill_without_active_context(monkeypatch)
             },
         )
 
-    assert resp.status_code == 502
-    assert resp.json()["reason"] == "no_active_alexa_skill_session"
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
+    assert resp.json()["message"] == "UI playback to Alexa requires an active Alexa skill session"
     assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
     assert any("prototype_skill_response_skipped_no_active_request" in message for message in capture_logger.messages)
+    assert any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
+    assert not any("ui_play_routed_to_alexa_provider_api" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_rejects_prototype_skill_with_stale_probe_context(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+
+    async def _fail_if_worker_handoff_called(**kwargs):
+        raise AssertionError("worker handoff must not run when Alexa probe context is stale")
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fail_if_worker_handoff_called)
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _FakeMAClient([
+                {"player_id": "echo-spot", "name": "Echo Spot", "provider": "alexa"},
+            ]),
+        )
+        registry.register(
+            "alexa_probe_state",
+            {
+                "probe_id": "probe-stale",
+                "probe_time": "2020-01-01T00:00:00+00:00",
+            },
+        )
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+            },
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
+    assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
+    assert not any("ui_play_routed_to_alexa_provider_api" in message for message in capture_logger.messages)
 
 
 def test_ma_push_url_allows_prototype_skill_with_recent_context(monkeypatch):

@@ -48,6 +48,24 @@ If the Simulator works but your real Echo device does not, the issue is locked t
 - **No Cloudflare Event?** It's a device context issue (Account mismatch, Locale mismatch, or the microphone misheard the invocation name).
 - **Worker Event Appears?** Request delivery is solved! You can now proceed to debug D1, Durable Objects, and Connectors.
 
+## UI-Initiated Playback Limitation
+
+If playback is started from the Music Assistant UI (which triggers `/ma/push-url`) and logs show:
+
+- `inbound_request_id: ""`
+- `last_alexa_probe.probe_id: ""`
+- `last_alexa_probe.probe_time: ""`
+- `alexa_request_context_missing`
+- `prototype_skill_response_skipped_no_active_request`
+
+then EchoWeave is correctly enforcing Alexa session rules. In this case, `/ma/push-url` returns `ui_play_requires_active_alexa_skill_session` because prototype-skill `AudioPlayer.Play` can only be attached to a live Alexa request/response cycle.
+
+Current behavior in this path:
+
+- No worker handoff/prototype response attempt.
+- No fake playback-start success state for Echo devices.
+- User must first create an active Alexa skill session (for example by invoking the skill by voice).
+
 ## Log Event Reference
 
 | Event Name | When | Indicates |

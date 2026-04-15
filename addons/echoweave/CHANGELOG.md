@@ -5,11 +5,28 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.55] - 2026-04-15
+
+### Changed
+
+- Bump add-on version to `0.3.55`.
+
+### Fixed
+
+- Enforce Alexa session-context control-path behavior for MA UI initiated playback: when no active Alexa request context exists, `/ma/push-url` returns explicit `ui_play_requires_active_alexa_skill_session` instead of attempting prototype-skill playback.
+- Surface explicit UI status messaging that prototype-skill playback is request/response scoped and UI-start requires active skill session unless a separate provider/API start route is implemented.
+
 ## [0.3.54] - 2026-04-15
 
 ### Changed
 
 - Bump add-on version to `0.3.54` for fix validation.
+
+### Fixed
+
+- Treat Alexa no-session UI start as control-path unsupported instead of stream failure: `/ma/push-url` now returns `ui_play_requires_active_alexa_skill_session` with explicit user-facing message when no live Alexa request context exists.
+- Keep strict request-context guard for prototype-skill playback (`inbound_request_id` or recent probe required) and skip worker handoff/prototype attachment when context is missing.
+- Add explicit session-context logs for this path: `alexa_request_context_missing`, `prototype_skill_response_skipped_no_active_request`, and `ui_play_not_supported_without_active_skill_session`.
 
 ## [0.3.53] - 2026-04-15
 

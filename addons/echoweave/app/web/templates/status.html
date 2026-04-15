@@ -19,6 +19,14 @@
 </div>
 {% endif %}
 
+{% if ui_playback_notice %}
+<div class="alert alert-warning">
+    <strong>Alexa UI Playback Limitation:</strong>
+    <p>{{ ui_playback_notice }}</p>
+    <p>UI playback to Alexa requires an active Alexa skill session unless a separate provider/API start route is implemented.</p>
+</div>
+{% endif %}
+
 <div class="status-grid">
     {% for item in items %}
     <div class="status-card status-{{ item.status }}">

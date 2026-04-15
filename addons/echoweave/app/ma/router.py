@@ -607,7 +607,25 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     }
                 )
             )
-            return JSONResponse(content={"status": "error", "reason": "no_active_alexa_skill_session"}, status_code=502)
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ui_play_not_supported_without_active_skill_session",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "reason": "ui_play_requires_active_alexa_skill_session",
+                    }
+                )
+            )
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "reason": "ui_play_requires_active_alexa_skill_session",
+                    "message": "UI playback to Alexa requires an active Alexa skill session",
+                },
+                status_code=409,
+            )
 
         if not is_edge_mode:
             logger.warning(

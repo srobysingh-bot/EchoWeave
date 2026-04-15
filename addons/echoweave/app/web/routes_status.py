@@ -58,6 +58,7 @@ async def status_page(request: Request) -> HTMLResponse:
             })
 
     errors: list[str] = [item["detail"] for item in items if item["status"] == "fail"]
+    ui_playback_notice = ""
 
     diagnostics = {
         "mode": {"value": "legacy", "source": "default"},
@@ -152,6 +153,11 @@ async def status_page(request: Request) -> HTMLResponse:
             "detail": "linked" if edge_remote["alexa_account_linked"] else "waiting-for-link",
         })
 
+        ui_playback_notice = (
+            "Prototype skill path is only for live Alexa request/response. "
+            "UI-start path must use a separate provider/API control route, or it is unsupported without an active Alexa skill session."
+        )
+
     items.append({
         "label": "Connector Registration",
         "status": "ok" if connector_runtime["registered"] == "true" else "warn",
@@ -172,6 +178,7 @@ async def status_page(request: Request) -> HTMLResponse:
             "errors": errors,
             "diagnostics": diagnostics,
             "connector_runtime": connector_runtime,
+            "ui_playback_notice": ui_playback_notice,
             "version": APP_VERSION,
             "timestamp": datetime.utcnow().isoformat() + "Z",
                 "edge_remote": edge_remote,
