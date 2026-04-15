@@ -119,6 +119,42 @@ export class MockD1Database {
       return { origin_base_url: home.origin_base_url };
     }
 
+    if (sql.includes("select count(*) as count from homes where is_active = 1")) {
+      const count = Array.from(this.homes.values()).filter((home) => home.is_active === 1).length;
+      return { count };
+    }
+
+    if (sql.includes("select count(*) as count from homes where is_active = 1 and origin_base_url is not null and alexa_source_queue_id is not null")) {
+      const count = Array.from(this.homes.values()).filter(
+        (home) => home.is_active === 1 && !!home.origin_base_url && !!home.alexa_source_queue_id,
+      ).length;
+      return { count };
+    }
+
+    if (sql.includes("select tenant_id, id as home_id, origin_base_url, alexa_source_queue_id from homes where is_active = 1 and origin_base_url is not null and alexa_source_queue_id is not null limit 1")) {
+      const home = Array.from(this.homes.values()).find(
+        (candidate) => candidate.is_active === 1 && !!candidate.origin_base_url && !!candidate.alexa_source_queue_id,
+      );
+      if (!home) return null;
+      return {
+        tenant_id: home.tenant_id,
+        home_id: home.id,
+        origin_base_url: home.origin_base_url,
+        alexa_source_queue_id: home.alexa_source_queue_id ?? null,
+      };
+    }
+
+    if (sql.includes("select tenant_id, id as home_id, origin_base_url, alexa_source_queue_id from homes where is_active = 1 limit 1")) {
+      const home = Array.from(this.homes.values()).find((candidate) => candidate.is_active === 1);
+      if (!home) return null;
+      return {
+        tenant_id: home.tenant_id,
+        home_id: home.id,
+        origin_base_url: home.origin_base_url,
+        alexa_source_queue_id: home.alexa_source_queue_id ?? null,
+      };
+    }
+
     if (sql.includes("from stream_tokens") && sql.includes("where id = ?")) {
       const [id, tenantId, homeId, playbackSessionId, tokenSignature] = args as [string, string, string, string, string];
       const token = this.streamTokens.get(id);
@@ -147,6 +183,28 @@ export class MockD1Database {
         origin_base_url: originBaseUrl ?? null,
         alexa_source_queue_id: queueId ?? null,
         connector_id: null,
+        is_active: 1,
+      });
+      return;
+    }
+
+    if (sql.startsWith("insert into homes (id, tenant_id, name, origin_base_url, alexa_source_queue_id, connector_id, is_active)")) {
+      const [id, tenantId, name, originBaseUrl, queueId, connectorId] = args as [
+        string,
+        string,
+        string | null,
+        string | null,
+        string | null,
+        string | null,
+      ];
+      const existing = this.homes.get(id) ?? null;
+      this.homes.set(id, {
+        id,
+        tenant_id: tenantId,
+        name: name ?? existing?.name ?? null,
+        origin_base_url: originBaseUrl ?? existing?.origin_base_url ?? null,
+        alexa_source_queue_id: queueId ?? existing?.alexa_source_queue_id ?? null,
+        connector_id: connectorId ?? existing?.connector_id ?? null,
         is_active: 1,
       });
       return;

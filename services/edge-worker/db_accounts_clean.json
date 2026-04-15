@@ -1,0 +1,60 @@
+[
+  {
+    "results": [
+      {
+        "alexa_user_id": "amzn1.ask.account.staging-user-1",
+        "user_id": "stg-user-1",
+        "tenant_id": "stg-tenant-1",
+        "home_id": "stg-home-1",
+        "access_scope": null,
+        "created_at": "2026-03-27 19:06:50",
+        "updated_at": "2026-03-27 19:06:50"
+      },
+      {
+        "alexa_user_id": "amzn1.account.STAGING",
+        "user_id": "user-staging",
+        "tenant_id": "tenant-staging",
+        "home_id": "home-staging",
+        "access_scope": null,
+        "created_at": "2026-03-29 11:44:27",
+        "updated_at": "2026-03-29 11:44:27"
+      },
+      {
+        "alexa_user_id": "amzn1.ask.account.AMA7PPA5P47SJLJF7Q2K7ZN62XBBTIMTAPT34B5DZ3J5K3MUTPNAIHBIIOS4MITXN5V4RKZOTA2DFUH7NWEVL2RJ3MEKVHRLBHUQIFKTOUXNGM5MSC6TZE34TJS3LIZNYGLGUTMG5DB34UBTAW3U267U45UE3QHP77OXLQWVMDXZ5IJLG6WA7MOP3T3DFENLTYWSVDEDXOIP3HJTW3AK22J3BAZ3FC5SJCP5XWF3P5YQ",
+        "user_id": "user-staging",
+        "tenant_id": "tenant-staging",
+        "home_id": "home-staging",
+        "access_scope": "full",
+        "created_at": "2026-03-29 20:20:40",
+        "updated_at": "2026-03-29 20:20:40"
+      },
+      {
+        "alexa_user_id": "amzn1.ask.account.AMAZLDUREJ4LE4FAE25ISV4QFNRMGG4QS7LESY5RDDC4R6OQOIFGUBBILGWHE66EANRPE2SBEF62UFWZI372MFOSKMRN4EXARDBFO7F2APOZCLPSMWTOEYDTIFTYL42HI7YJCT2SHE5BWWDGGUK55IFVBC3QACIR7X6YUNOPGTN723DMDNVXPWBNWAF55M77CKCTPVYDAYCI3K3GQQOH5745XHRPQYJZG6ZZYEFQF7CA",
+        "user_id": "user-staging",
+        "tenant_id": "tenant-staging",
+        "home_id": "home-staging",
+        "access_scope": null,
+        "created_at": "2026-03-30 05:34:59",
+        "updated_at": "2026-03-30 05:34:59"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "APAC",
+      "served_by_colo": "KIX",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1146
+      },
+      "duration": 0.1146,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 114688,
+      "rows_read": 4,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

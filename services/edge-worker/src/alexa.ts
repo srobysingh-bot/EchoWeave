@@ -26,6 +26,12 @@ function extractAlexaUserId(envelope: AlexaRequestEnvelope): string {
   );
 }
 
+function truncateIdentifier(value: string, head = 20, tail = 6): string {
+  if (!value) return "";
+  if (value.length <= head + tail + 3) return value;
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
 function normalizeIntentQuery(rawQuery: string): string {
   return rawQuery
     .trim()
@@ -357,9 +363,57 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   const intentName = envelope.request?.intent?.name ?? "";
   const rawQuery = extractIntentQuery(envelope);
   const normalizedQuery = normalizeIntentQuery(rawQuery);
+  const requestLocale = String(envelope.request?.locale ?? "");
+  const alexaUserId = extractAlexaUserId(envelope);
+  const truncatedUserId = truncateIdentifier(alexaUserId);
+  const sessionId = String(envelope.session?.sessionId ?? "");
+  const sessionIsNew = envelope.session?.new;
+  const applicationId = String(
+    envelope.session?.application?.applicationId ||
+      envelope.context?.System?.application?.applicationId ||
+      "",
+  );
+  const truncatedApplicationId = truncateIdentifier(applicationId, 18, 8);
+  const buildId = String(env.BUILD_ID ?? "");
+  const deploySha = String(env.DEPLOY_SHA ?? "");
 
   // Log 4: Request type and intent
   console.info(JSON.stringify({ event: "alexa_envelope_parsed", request_id: requestId, request_type: requestType, intent_name: intentName || undefined }));
+  if (sessionId && alexaUserId) {
+    console.info(
+      JSON.stringify({
+        event: "alexa_skill_session_active",
+        request_id: requestId,
+        request_type: requestType,
+        locale: requestLocale,
+        session_id: sessionId,
+        session_new: sessionIsNew,
+        alexa_user_id_truncated: truncatedUserId,
+        application_id_truncated: truncatedApplicationId,
+        build_id: buildId,
+        deploy_sha: deploySha,
+      }),
+    );
+  } else {
+    const missingReasons: string[] = [];
+    if (!sessionId) missingReasons.push("missing_session_id");
+    if (!alexaUserId) missingReasons.push("missing_alexa_user_id");
+    console.warn(
+      JSON.stringify({
+        event: "alexa_skill_session_missing",
+        request_id: requestId,
+        request_type: requestType,
+        locale: requestLocale,
+        session_id: sessionId,
+        session_new: sessionIsNew,
+        alexa_user_id_present: !!alexaUserId,
+        application_id_truncated: truncatedApplicationId,
+        reason: missingReasons.join(",") || "missing_session_context",
+        build_id: buildId,
+        deploy_sha: deploySha,
+      }),
+    );
+  }
   console.info(
     JSON.stringify({
       event: "alexa_intent_query",
@@ -389,6 +443,19 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }
 
   if (requestType === "LaunchRequest") {
+    console.info(
+      JSON.stringify({
+        event: "alexa_skill_launch_request_received",
+        request_id: requestId,
+        locale: requestLocale,
+        session_id: sessionId,
+        session_new: sessionIsNew,
+        alexa_user_id_truncated: truncatedUserId,
+        application_id_truncated: truncatedApplicationId,
+        build_id: buildId,
+        deploy_sha: deploySha,
+      }),
+    );
     const payload = {
       version: "1.0",
       response: {
@@ -507,8 +574,6 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }
 
   // Log 5: Alexa user ID extraction
-  const alexaUserId = extractAlexaUserId(envelope);
-  const truncatedUserId = alexaUserId ? `${alexaUserId.slice(0, 20)}...${alexaUserId.slice(-6)}` : "";
   console.info(JSON.stringify({ event: "alexa_user_resolved", request_id: requestId, alexa_user_id_present: !!alexaUserId, alexa_user_id_truncated: truncatedUserId }));
 
   if (!alexaUserId) {

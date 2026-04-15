@@ -1,0 +1,28 @@
+[
+  {
+    "results": [
+      {
+        "alexa_user_id": "amzn1.ask.account.AMARUNICG3XV5K33QCVARHVN76YLECO6UOHXIYTIA4WGJGB6OMXFHUXQVZMKUI5ESPDZJB3Z2VG6IDTARQBH4XEVAAVPQWALV3CPYZR6OHZQGCFUO4PTVVHB5KCF3RSN5ACYGCNDSJ3YQIOCUHYPKC4YVK4EPWESNMPFDM7KEBHIJNJXBFKRMDGYFXVDVD2EOZQFX4ZKDRREN5FLC233KWYIKEWNZDGC5SGC7TJLXPDQ",
+        "last_seen": "2026-04-08 08:33:43"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "APAC",
+      "served_by_colo": "KIX",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.147
+      },
+      "duration": 0.147,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 122880,
+      "rows_read": 4,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

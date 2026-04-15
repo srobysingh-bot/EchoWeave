@@ -69,6 +69,36 @@ describe("alexa routing and stream token checks", () => {
     expect(body.response.outputSpeech.text.toLowerCase()).toContain("not linked");
   });
 
+  test("/v1/alexa falls back to the sole active home when no mapping exists", async () => {
+    const env = createEnv({ ALEXA_SIGNATURE_ENFORCE: "false" });
+    const db = env.ECHOWEAVE_DB as unknown as MockD1Database;
+    db.homes.set("home-a", {
+      id: "home-a",
+      tenant_id: "tenant-a",
+      name: "Home A",
+      origin_base_url: "https://origin.example.com",
+      connector_id: "conn-a",
+      alexa_source_queue_id: "queue-a",
+      is_active: 1,
+    });
+
+    const req = new Request("https://worker/v1/alexa", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(baseAlexaEnvelope),
+    });
+
+    const resp = await handleAlexaWebhook(req, env);
+    expect(resp.status).toBe(200);
+
+    const body = (await resp.json()) as {
+      response: {
+        directives: Array<{ type: string; audioItem: { stream: { url: string } } }>;
+      };
+    };
+    expect(body.response.directives[0].type).toBe("AudioPlayer.Play");
+  });
+
   test("/v1/alexa resolves linked home and returns AudioPlayer.Play", async () => {
     const env = createEnv({ ALEXA_SIGNATURE_ENFORCE: "false" });
     setupLinkedHome(env);
@@ -89,6 +119,47 @@ describe("alexa routing and stream token checks", () => {
     };
     expect(body.response.directives[0].type).toBe("AudioPlayer.Play");
     expect(body.response.directives[0].audioItem.stream.url).toContain("/v1/stream/");
+  });
+
+  test("/v1/alexa returns queue-empty speech when MA reports no active queue", async () => {
+    const env = createEnv({
+      ALEXA_SIGNATURE_ENFORCE: "false",
+      HOME_SESSION: {
+        idFromName: () => "home-session-id",
+        get: () => ({
+          fetch: async (_request: Request | string, init?: RequestInit) => {
+            const url = typeof _request === "string" ? _request : _request.url;
+            if (url.endsWith("/command")) {
+              return new Response(JSON.stringify({ error: "No active queue available." }), {
+                status: 502,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({ error: "not-found" }), {
+              status: 404,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      } as any,
+    });
+    setupLinkedHome(env);
+
+    const req = new Request("https://worker/v1/alexa", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(baseAlexaEnvelope),
+    });
+
+    const resp = await handleAlexaWebhook(req, env);
+    expect(resp.status).toBe(200);
+
+    const body = (await resp.json()) as {
+      response: {
+        outputSpeech: { text: string };
+      };
+    };
+    expect(body.response.outputSpeech.text).toContain("active speaker queue");
   });
 
   test("/v1/stream/:token rejects invalid and expired tokens", async () => {

@@ -1,0 +1,48 @@
+[
+  {
+    "results": [
+      {
+        "id": "stg-home-1",
+        "tenant_id": "stg-tenant-1",
+        "name": "Staging Home 1",
+        "origin_base_url": "https://example.com",
+        "edge_shared_secret_ref": null,
+        "connector_id": "stg-conn-1",
+        "alexa_source_queue_id": "stg-queue-1",
+        "is_active": 1,
+        "created_at": "2026-03-27 19:06:48",
+        "updated_at": "2026-03-27 19:06:51"
+      },
+      {
+        "id": "home-staging",
+        "tenant_id": "tenant-staging",
+        "name": "Primary Home",
+        "origin_base_url": "https://environments-but-announcements-girls.trycloudflare.com",
+        "edge_shared_secret_ref": null,
+        "connector_id": "conn-home-staging",
+        "alexa_source_queue_id": "",
+        "is_active": 1,
+        "created_at": "2026-03-29 11:44:25",
+        "updated_at": "2026-03-29 15:58:50"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "APAC",
+      "served_by_colo": "KIX",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.4584
+      },
+      "duration": 0.4584,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 114688,
+      "rows_read": 2,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

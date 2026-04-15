@@ -48,6 +48,35 @@ If the Simulator works but your real Echo device does not, the issue is locked t
 - **No Cloudflare Event?** It's a device context issue (Account mismatch, Locale mismatch, or the microphone misheard the invocation name).
 - **Worker Event Appears?** Request delivery is solved! You can now proceed to debug D1, Durable Objects, and Connectors.
 
+### Phase 2A: Device Launches Wrong Skill/Version
+
+If the simulator launches correctly but the real Echo says "I'm not quite sure how to help with that" and Alexa app still shows stale template examples (for example "Alexa open hello world"), treat this as a skill/version routing issue first.
+
+Run this sequence in order:
+
+1. Rebuild the skill in Alexa Developer Console:
+   - Open skill -> **Build** -> **Save Model** -> **Build Model**.
+   - Wait for a successful build before testing on device.
+2. Disable and re-enable the development skill in the Alexa app:
+   - Confirm you are using the same Amazon account linked to your developer profile.
+3. Verify locale alignment exactly:
+   - Skill locale: **English (IN)**
+   - Echo Spot language: **English (India)**
+4. Check Alexa voice history transcript for both launch phrases:
+   - `Alexa, open weave bridge`
+   - `Alexa, ask weave bridge`
+5. Search for conflicting old skills, duplicate test skills, or old versions and disable them.
+6. Re-open the Alexa app skill page and verify launch phrase examples are no longer stale template text (for example old "hello world" examples).
+7. If stale metadata still appears after rebuild + re-enable, create a clean new custom skill with a fresh invocation name and point it to the same Worker endpoint, then retest on device.
+
+Only move to playback debugging after real device launch succeeds.
+
+Acceptance gate for launch-path readiness:
+
+- Real Echo Spot speaks the EchoWeave welcome message.
+- Alexa app reflects the correct skill metadata and invocation.
+- Worker logs show an inbound Alexa request/session from the physical device.
+
 ## UI-Initiated Playback Limitation
 
 If playback is started from the Music Assistant UI (which triggers `/ma/push-url`) and logs show:
@@ -74,4 +103,7 @@ Current behavior in this path:
 | `alexa_request_routed` | POST /v1/alexa | Routed to Alexa handler |
 | `alexa_signature_result` | After sig check | Signature pass/fail |
 | `alexa_envelope_parsed` | After parsing | Request type + intent |
+| `alexa_skill_launch_request_received` | LaunchRequest only | Real skill launch reached Worker |
+| `alexa_skill_session_active` | Session metadata present | Session/app/account context is attached |
+| `alexa_skill_session_missing` | Session metadata missing | Missing session/user/app context on inbound request |
 
