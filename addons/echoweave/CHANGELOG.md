@@ -5,6 +5,18 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.56] - 2026-04-15
+
+### Changed
+
+- Bump add-on version to `0.3.56`.
+
+### Fixed
+
+- Implement Alexa skill-session bootstrap in `/ma/push-url` for MA UI Alexa starts without inbound request context, including bootstrap request/send/confirm/fail logging.
+- Allow prototype-skill playback attachment when bootstrap confirms a fresh live Alexa context and emit `prototype_skill_play_attached_to_live_request` for successful attach path.
+- Extend integration coverage for bootstrap success/failure paths and stabilize tests by clearing push-url coalescing state between cases.
+
 ## [0.3.55] - 2026-04-15
 
 ### Changed

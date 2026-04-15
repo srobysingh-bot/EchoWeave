@@ -1333,6 +1333,86 @@ class MusicAssistantClient:
         except MusicAssistantError as exc:
             return False, f"ma-error:{exc}"
 
+    async def request_alexa_skill_session_bootstrap(
+        self,
+        *,
+        player_id: str,
+        request_id: str = "",
+        home_id: str = "",
+        invocation_names: list[str] | None = None,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Best-effort bootstrap for Alexa skill session from MA control commands.
+
+        This does not guarantee device wake/utterance handling; it attempts known MA
+        command namespaces that may route voice/announcement text to Alexa-like players.
+        """
+        target_player_id = (player_id or "").strip()
+        if not target_player_id:
+            return False, "missing-player-id", {}
+
+        names = [name.strip() for name in (invocation_names or ["music assistant", "weave bridge"]) if str(name).strip()]
+        if not names:
+            names = ["music assistant", "weave bridge"]
+
+        attempts: list[tuple[list[str], dict[str, Any], str]] = []
+        for invocation_name in names:
+            phrase = f"open {invocation_name}"
+            attempts.extend(
+                [
+                    (
+                        ["players/cmd/play_announcement"],
+                        {"player_id": target_player_id, "message": phrase},
+                        f"play_announcement:{invocation_name}",
+                    ),
+                    (
+                        ["players/cmd/tts"],
+                        {"player_id": target_player_id, "message": phrase},
+                        f"tts:{invocation_name}",
+                    ),
+                    (
+                        ["players/cmd/custom"],
+                        {
+                            "player_id": target_player_id,
+                            "command": "voice_command",
+                            "value": phrase,
+                        },
+                        f"custom_voice_command:{invocation_name}",
+                    ),
+                ]
+            )
+
+        attempt_errors: list[dict[str, str]] = []
+        for commands, payload, mode in attempts:
+            try:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "alexa_skill_session_bootstrap_command_attempt",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": target_player_id,
+                            "mode": mode,
+                            "commands": commands,
+                            "payload": payload,
+                        },
+                        default=str,
+                    )
+                )
+                response = await self._post_command_with_fallback(commands, **payload)
+                return True, "bootstrap-command-sent", {
+                    "mode": mode,
+                    "commands": commands,
+                    "payload": payload,
+                    "response": response,
+                }
+            except MusicAssistantError as exc:
+                attempt_errors.append({"mode": mode, "error": str(exc)})
+
+        return False, "bootstrap-command-failed", {
+            "player_id": target_player_id,
+            "attempt_errors": attempt_errors,
+        }
+
     async def handoff_playback_url(
         self,
         *,

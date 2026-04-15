@@ -62,6 +62,7 @@ async def status_page(request: Request) -> HTMLResponse:
 
     diagnostics = {
         "mode": {"value": "legacy", "source": "default"},
+        "alexa_ui_start_supported": {"value": False, "source": "contract"},
         "backend_url": {"value": "", "source": "default"},
         "worker_base_url": {"value": "", "source": "default"},
         "tunnel_base_url": {"value": "", "source": "default"},

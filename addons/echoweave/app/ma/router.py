@@ -28,6 +28,7 @@ router = APIRouter(prefix="/ma", tags=["ma"])
 
 _PUSH_URL_COALESCE_WINDOW_SEC = 8.0
 _ALEXA_REQUEST_CONTEXT_MAX_AGE_SEC = 120.0
+_ALEXA_BOOTSTRAP_WAIT_SECONDS = 6.0
 _PUSH_URL_PLAYER_LOCKS: dict[str, asyncio.Lock] = {}
 _PUSH_URL_SESSION_CACHE: dict[str, dict[str, Any]] = {}
 
@@ -93,6 +94,24 @@ def _get_alexa_request_context(probe_state: dict[str, Any]) -> dict[str, Any]:
         "has_recent_probe": has_probe,
         "probe_age_seconds": round(probe_age_seconds, 3) if probe_age_seconds is not None else None,
     }
+
+
+async def _wait_for_alexa_bootstrap_context(
+    *,
+    initial_probe_id: str,
+    wait_seconds: float = _ALEXA_BOOTSTRAP_WAIT_SECONDS,
+    poll_interval_seconds: float = 1.0,
+) -> tuple[bool, dict[str, Any]]:
+    started = monotonic()
+    while monotonic() - started < wait_seconds:
+        current_probe_state = registry.get_optional("alexa_probe_state") or {}
+        current_context = _get_alexa_request_context(current_probe_state)
+        current_probe_id = str(current_context.get("probe_id") or "")
+        if bool(current_context.get("has_recent_probe")) and current_probe_id and current_probe_id != initial_probe_id:
+            return True, current_context
+        await asyncio.sleep(poll_interval_seconds)
+    current_probe_state = registry.get_optional("alexa_probe_state") or {}
+    return False, _get_alexa_request_context(current_probe_state)
 
 
 async def _readback_player_state(
@@ -505,6 +524,159 @@ async def ma_push_url(request: Request) -> JSONResponse:
         )
         return JSONResponse(content={"status": "error", "reason": "service_unavailable"}, status_code=503)
 
+    provider_hint = str(
+        body.get("provider")
+        or body.get("source")
+        or body.get("integration")
+        or ""
+    ).strip().lower()
+    has_inbound_request_context = bool(inbound_request_id)
+    alexa_request_context = _get_alexa_request_context(probe_state)
+    alexa_request_context["has_inbound_request_id"] = has_inbound_request_context
+    bootstrap_confirmed = False
+
+    if provider_hint == "alexa" and not has_inbound_request_context:
+        early_player_id = player_hint
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "alexa_request_context_missing",
+                    "request_id": request_id,
+                    "home_id": "",
+                    "player_id": early_player_id,
+                    **alexa_request_context,
+                    "reason": "no_active_alexa_skill_session",
+                }
+            )
+        )
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "alexa_skill_session_bootstrap_requested",
+                    "request_id": request_id,
+                    "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                    "player_id": early_player_id,
+                }
+            )
+        )
+
+        bootstrap_sent = False
+        bootstrap_result_message = "bootstrap-handler-unavailable"
+        bootstrap_details: dict[str, Any] = {}
+        bootstrap_fn = getattr(ma_client, "request_alexa_skill_session_bootstrap", None)
+        if callable(bootstrap_fn) and early_player_id:
+            try:
+                bootstrap_sent, bootstrap_result_message, bootstrap_details = await bootstrap_fn(
+                    player_id=early_player_id,
+                    request_id=request_id,
+                    home_id=str(getattr(config_service.settings, "home_id", "") or ""),
+                )
+            except Exception as exc:
+                bootstrap_sent = False
+                bootstrap_result_message = f"bootstrap-exception:{exc}"
+                bootstrap_details = {"error": str(exc)}
+        elif not early_player_id:
+            bootstrap_result_message = "missing-player-id"
+
+        if bootstrap_sent:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_skill_session_bootstrap_sent",
+                        "request_id": request_id,
+                        "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                        "player_id": early_player_id,
+                        "result": bootstrap_result_message,
+                        "details": bootstrap_details,
+                    },
+                    default=str,
+                )
+            )
+
+            bootstrap_ok, bootstrap_context = await _wait_for_alexa_bootstrap_context(
+                initial_probe_id=str(alexa_request_context.get("probe_id") or ""),
+                wait_seconds=_ALEXA_BOOTSTRAP_WAIT_SECONDS,
+                poll_interval_seconds=1.0,
+            )
+            if bootstrap_ok:
+                bootstrap_confirmed = True
+                alexa_request_context = bootstrap_context
+                alexa_request_context["has_inbound_request_id"] = has_inbound_request_context
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "alexa_skill_session_bootstrap_confirmed",
+                            "request_id": request_id,
+                            "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                            "player_id": early_player_id,
+                            **alexa_request_context,
+                        }
+                    )
+                )
+            else:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "alexa_skill_session_bootstrap_failed",
+                            "request_id": request_id,
+                            "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                            "player_id": early_player_id,
+                            "reason": "bootstrap_context_not_observed",
+                            "result": bootstrap_result_message,
+                            "details": bootstrap_details,
+                            "context": bootstrap_context,
+                        },
+                        default=str,
+                    )
+                )
+        else:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "alexa_skill_session_bootstrap_failed",
+                        "request_id": request_id,
+                        "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                        "player_id": early_player_id,
+                        "reason": bootstrap_result_message,
+                        "details": bootstrap_details,
+                    },
+                    default=str,
+                )
+            )
+
+        if not bootstrap_confirmed:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "prototype_skill_response_skipped_no_active_request",
+                        "request_id": request_id,
+                        "home_id": "",
+                        "player_id": early_player_id,
+                        "reason": "no_active_alexa_skill_session",
+                    }
+                )
+            )
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ui_play_not_supported_without_active_skill_session",
+                        "request_id": request_id,
+                        "home_id": str(getattr(config_service.settings, "home_id", "") or ""),
+                        "player_id": early_player_id,
+                        "reason": "ui_play_requires_active_alexa_skill_session",
+                    }
+                )
+            )
+            return JSONResponse(
+                content={
+                    "status": "error",
+                    "reason": "ui_play_requires_active_alexa_skill_session",
+                    "message": "UI playback to Alexa requires an active Alexa skill session",
+                },
+                status_code=409,
+            )
+
     public_playback_url = ""
 
     try:
@@ -561,10 +733,10 @@ async def ma_push_url(request: Request) -> JSONResponse:
     preferred_queue_id = str(flow.get("session_id") or "")
     is_edge_mode = bool(getattr(config_service.settings, "is_edge_mode", False))
     alexa_request = _is_alexa_request(body, matched_player)
-    has_inbound_request_context = bool(inbound_request_id)
-    alexa_request_context = _get_alexa_request_context(probe_state)
     alexa_request_context["has_inbound_request_id"] = has_inbound_request_context
-    has_active_alexa_request_context = has_inbound_request_context or bool(alexa_request_context["has_recent_probe"])
+    # Prototype-skill AudioPlayer responses must be attached to a live request/response cycle.
+    # A probe-only context is not sufficient for MA UI initiated push-url callbacks.
+    has_active_alexa_request_context = has_inbound_request_context or bootstrap_confirmed
 
     final_playback_url = ""
     worker_handoff_details: dict[str, Any] = {}
@@ -816,6 +988,19 @@ async def ma_push_url(request: Request) -> JSONResponse:
                         "playback_url": final_playback_url,
                         "source": "prototype_skill_path",
                         "note": "handoff accepted; awaiting Alexa fetch or playback callback proof",
+                    }
+                )
+            )
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "prototype_skill_play_attached_to_live_request",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "playback_session_id": result["playback_session_id"],
+                        "stream_token_id": result["stream_token_id"],
+                        "source": "prototype_skill_path",
                     }
                 )
             )

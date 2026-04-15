@@ -135,6 +135,15 @@
 {% if settings.mode != 'connector' %}
 <div class="setup-form">
     <h2>Manual Alexa Skill Setup (Phase 1)</h2>
+    <div class="alert alert-warning">
+        <strong>Alexa UI Playback Limitation:</strong>
+        <p>
+            Prototype skill playback is request/response only. A Music Assistant UI click alone cannot
+            send <code>AudioPlayer.Play</code> unless an active Alexa skill session already exists.
+            Without active session context, EchoWeave returns
+            <code>ui_play_requires_active_alexa_skill_session</code>.
+        </p>
+    </div>
     <p class="info-text">
         In Phase 1, ASK automation is not yet available. If you have manually created an Alexa skill
         in the <a href="https://developer.amazon.com/alexa/console/ask" target="_blank">Amazon Developer Console</a>,

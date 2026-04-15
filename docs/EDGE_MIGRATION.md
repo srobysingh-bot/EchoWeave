@@ -185,6 +185,20 @@ Implemented first path for “Alexa, ask EchoWeave to play”:
 - Full certificate chain cryptographic trust validation is still partial; leaf certificate checks and body signature verification are implemented.
 - Production tunnel deployment and per-home secret lifecycle are external infrastructure tasks.
 
+## Engineering Decision: Alexa UI-Start vs Prototype Skill Path
+
+Decision date: 2026-04-15
+
+- Prototype skill path is voice-session response logic only.
+- `AudioPlayer.Play` must be attached to a live Alexa request/response cycle.
+- Music Assistant UI clicks (`/ma/push-url`) without active Alexa request context (`inbound_request_id` or recent probe) must not attempt prototype playback.
+
+Product behavior in this repository:
+
+- If active request context is missing, return `ui_play_requires_active_alexa_skill_session` with a user-facing message.
+- Do not attempt worker handoff/prototype attach in that case.
+- A separate out-of-band Alexa UI-start provider/API route is not currently implemented in this stack.
+
 ## Final Hardening Tasks
 
 - Enforce `ADMIN_API_KEY` in all non-local deployments.

@@ -133,3 +133,4 @@ def test_status_surface_shows_edge_readiness(monkeypatch):
     assert "worker_home_provisioned" in body
     assert "Alexa UI Playback Limitation" in body
     assert "UI playback to Alexa requires an active Alexa skill session" in body
+    assert "alexa_ui_start_supported" in body

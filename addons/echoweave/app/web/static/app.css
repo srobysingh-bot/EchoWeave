@@ -95,6 +95,7 @@ body {
     font-size: 0.9rem;
 }
 .alert-error { background: rgba(255, 107, 107, 0.12); border: 1px solid rgba(255, 107, 107, 0.3); }
+.alert-warning { background: rgba(255, 209, 102, 0.14); border: 1px solid rgba(255, 209, 102, 0.45); }
 .alert-error ul { margin-top: 0.5rem; padding-left: 1.2rem; }
 
 /* ---- Progress Bar ---- */

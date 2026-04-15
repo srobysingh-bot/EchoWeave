@@ -101,6 +101,20 @@ def test_edge_intents_probe_state_debug_endpoint(monkeypatch):
         assert isinstance(payload.get("payload", {}).get("intents"), list)
 
 
+def test_setup_surfaces_alexa_ui_playback_limitation(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+
+    app = create_app()
+    with TestClient(app) as client:
+        resp = client.get("/setup")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Alexa UI Playback Limitation" in body
+    assert "ui_play_requires_active_alexa_skill_session" in body
+
+
 def test_edge_mode_startup_does_not_start_heartbeat_loop(monkeypatch):
     _set_edge_env(monkeypatch)
 
@@ -195,6 +209,8 @@ def test_ma_push_url_rejects_prototype_skill_without_active_context(monkeypatch)
     _mock_edge_startup(monkeypatch)
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
 
     async def _fail_if_worker_handoff_called(**kwargs):
         raise AssertionError("worker handoff must not run when Alexa request context is missing")
@@ -224,9 +240,45 @@ def test_ma_push_url_rejects_prototype_skill_without_active_context(monkeypatch)
     assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
     assert resp.json()["message"] == "UI playback to Alexa requires an active Alexa skill session"
     assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_requested" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_failed" in message for message in capture_logger.messages)
     assert any("prototype_skill_response_skipped_no_active_request" in message for message in capture_logger.messages)
     assert any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
     assert not any("ui_play_routed_to_alexa_provider_api" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_short_circuits_before_player_resolution_for_alexa_without_inbound_context(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
+
+    class _FailMA:
+        async def get_players(self):
+            raise AssertionError("get_players must not be called for early Alexa context short-circuit")
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register("ma_client", _FailMA())
+        registry.register("alexa_probe_state", {"probe_id": "", "probe_time": ""})
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+                "player_id": "echo-spot",
+            },
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
+    assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_requested" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_failed" in message for message in capture_logger.messages)
 
 
 def test_ma_push_url_rejects_prototype_skill_with_stale_probe_context(monkeypatch):
@@ -234,6 +286,8 @@ def test_ma_push_url_rejects_prototype_skill_with_stale_probe_context(monkeypatc
     _mock_edge_startup(monkeypatch)
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
 
     async def _fail_if_worker_handoff_called(**kwargs):
         raise AssertionError("worker handoff must not run when Alexa probe context is stale")
@@ -268,15 +322,134 @@ def test_ma_push_url_rejects_prototype_skill_with_stale_probe_context(monkeypatc
     assert resp.status_code == 409
     assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
     assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_requested" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_failed" in message for message in capture_logger.messages)
     assert any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
     assert not any("ui_play_routed_to_alexa_provider_api" in message for message in capture_logger.messages)
 
 
-def test_ma_push_url_allows_prototype_skill_with_recent_context(monkeypatch):
+def test_ma_push_url_rejects_prototype_skill_with_probe_only_context(monkeypatch):
     _set_edge_env(monkeypatch)
     _mock_edge_startup(monkeypatch)
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
+
+    async def _fail_if_worker_handoff_called(**kwargs):
+        raise AssertionError("worker handoff must not run when only probe context exists")
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fail_if_worker_handoff_called)
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _FakeMAClient([
+                {"player_id": "echo-spot", "name": "Echo Spot", "provider": "alexa"},
+            ]),
+        )
+        registry.register(
+            "alexa_probe_state",
+            {
+                "probe_id": "probe-recent",
+                "probe_time": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+            },
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "ui_play_requires_active_alexa_skill_session"
+    assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_requested" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_failed" in message for message in capture_logger.messages)
+    assert any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_bootstrap_confirms_and_allows_prototype_skill_without_inbound_request(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
+
+    async def _fake_request_worker_handoff(**kwargs):
+        return {
+            "stream_url": "https://worker.example.com/v1/stream/token-bootstrap",
+            "playback_session_id": "session-bootstrap",
+            "stream_token_id": "token-bootstrap",
+        }
+
+    async def _fake_wait_for_worker_stream_fetch_start(**kwargs):
+        return True, {"stream_fetch_started": True, "playback_started": False}
+
+    async def _fake_readback_player_state(**kwargs):
+        return {"player_id": "echo-spot", "playback_state": "playing", "queue_length": 1}
+
+    async def _fake_wait_for_alexa_bootstrap_context(**kwargs):
+        return (
+            True,
+            {
+                "probe_id": "probe-bootstrap",
+                "probe_time": datetime.now(timezone.utc).isoformat(),
+                "probe_age_sec": 0.0,
+                "has_recent_probe": True,
+            },
+        )
+
+    class _BootstrapMAClient(_FakeMAClient):
+        async def request_alexa_skill_session_bootstrap(self, **kwargs):
+            return True, "bootstrap_sent", {"command": "players/cmd/tts"}
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fake_request_worker_handoff)
+    monkeypatch.setattr(ma_router, "_wait_for_worker_stream_fetch_start", _fake_wait_for_worker_stream_fetch_start)
+    monkeypatch.setattr(ma_router, "_readback_player_state", _fake_readback_player_state)
+    monkeypatch.setattr(ma_router, "_wait_for_alexa_bootstrap_context", _fake_wait_for_alexa_bootstrap_context)
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _BootstrapMAClient([
+                {"player_id": "echo-spot", "name": "Echo Spot", "provider": "alexa"},
+            ]),
+        )
+        registry.register("alexa_probe_state", {"probe_id": "", "probe_time": ""})
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+                "player_id": "echo-spot",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert any("alexa_skill_session_bootstrap_requested" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_sent" in message for message in capture_logger.messages)
+    assert any("alexa_skill_session_bootstrap_confirmed" in message for message in capture_logger.messages)
+    assert any("prototype_skill_play_attached_to_live_request" in message for message in capture_logger.messages)
+    assert not any("ui_play_not_supported_without_active_skill_session" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_allows_prototype_skill_with_inbound_request_context(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
 
     async def _fake_request_worker_handoff(**kwargs):
         return {
@@ -314,6 +487,7 @@ def test_ma_push_url_allows_prototype_skill_with_recent_context(monkeypatch):
 
         resp = client.post(
             "/ma/push-url",
+            headers={"x-request-id": "alexa-live-request-1"},
             json={
                 "streamUrl": "/flow/session-a/echo-spot/item-1",
                 "provider": "alexa",
@@ -330,6 +504,8 @@ def test_ma_push_url_routes_ui_play_to_provider_api(monkeypatch):
     _mock_edge_startup(monkeypatch)
     capture_logger = _CaptureLogger()
     monkeypatch.setattr(ma_router, "logger", capture_logger)
+    ma_router._PUSH_URL_SESSION_CACHE.clear()
+    ma_router._PUSH_URL_PLAYER_LOCKS.clear()
 
     async def _fake_request_worker_handoff(**kwargs):
         return {
