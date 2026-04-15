@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from time import monotonic
 from typing import Any
 from urllib.parse import quote, unquote, urlparse, urlunparse
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ma", tags=["ma"])
 
 _PUSH_URL_COALESCE_WINDOW_SEC = 8.0
+_ALEXA_REQUEST_CONTEXT_MAX_AGE_SEC = 120.0
 _PUSH_URL_PLAYER_LOCKS: dict[str, asyncio.Lock] = {}
 _PUSH_URL_SESSION_CACHE: dict[str, dict[str, Any]] = {}
 
@@ -62,6 +64,35 @@ def _is_alexa_request(body: dict[str, Any], matched_player: dict[str, Any] | Non
     if provider_hint == "alexa":
         return True
     return _is_alexa_like_player(matched_player)
+
+
+def _get_alexa_request_context(probe_state: dict[str, Any]) -> dict[str, Any]:
+    probe_id = str(probe_state.get("probe_id") or "").strip()
+    probe_time = str(probe_state.get("probe_time") or "").strip()
+    has_probe = bool(probe_id and probe_time)
+    probe_age_seconds: float | None = None
+
+    if has_probe:
+        try:
+            parsed_probe_time = datetime.fromisoformat(probe_time.replace("Z", "+00:00"))
+            if parsed_probe_time.tzinfo is None:
+                parsed_probe_time = parsed_probe_time.replace(tzinfo=timezone.utc)
+            probe_age_seconds = max(
+                0.0,
+                (datetime.now(timezone.utc) - parsed_probe_time).total_seconds(),
+            )
+            has_probe = probe_age_seconds <= _ALEXA_REQUEST_CONTEXT_MAX_AGE_SEC
+        except Exception:
+            has_probe = False
+            probe_age_seconds = None
+
+    return {
+        "probe_id": probe_id,
+        "probe_time": probe_time,
+        "has_inbound_request_id": False,
+        "has_recent_probe": has_probe,
+        "probe_age_seconds": round(probe_age_seconds, 3) if probe_age_seconds is not None else None,
+    }
 
 
 async def _readback_player_state(
@@ -530,12 +561,54 @@ async def ma_push_url(request: Request) -> JSONResponse:
     preferred_queue_id = str(flow.get("session_id") or "")
     is_edge_mode = bool(getattr(config_service.settings, "is_edge_mode", False))
     alexa_request = _is_alexa_request(body, matched_player)
+    has_inbound_request_context = bool(inbound_request_id)
+    alexa_request_context = _get_alexa_request_context(probe_state)
+    alexa_request_context["has_inbound_request_id"] = has_inbound_request_context
+    has_active_alexa_request_context = has_inbound_request_context or bool(alexa_request_context["has_recent_probe"])
 
     final_playback_url = ""
     worker_handoff_details: dict[str, Any] = {}
     flow_title = str(body.get("title") or body.get("name") or flow.get("item_id", ""))
 
     if alexa_request:
+        if has_active_alexa_request_context:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "alexa_request_context_found",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        **alexa_request_context,
+                    }
+                )
+            )
+        else:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "alexa_request_context_missing",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        **alexa_request_context,
+                        "reason": "no_active_alexa_skill_session",
+                    }
+                )
+            )
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "prototype_skill_response_skipped_no_active_request",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": resolved_player_id,
+                        "reason": "no_active_alexa_skill_session",
+                    }
+                )
+            )
+            return JSONResponse(content={"status": "error", "reason": "no_active_alexa_skill_session"}, status_code=502)
+
         if not is_edge_mode:
             logger.warning(
                 json.dumps(
@@ -716,7 +789,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
             logger.info(
                 json.dumps(
                     {
-                        "event": "alexa_audio_player_play_response_expected",
+                        "event": "prototype_skill_response_attached",
                         "request_id": request_id,
                         "home_id": home_id,
                         "player_id": resolved_player_id,
@@ -942,6 +1015,17 @@ async def ma_push_url(request: Request) -> JSONResponse:
     final_playback_url = public_playback_url
 
     if is_edge_mode:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ui_play_routed_to_alexa_provider_api",
+                    "request_id": request_id,
+                    "home_id": home_id,
+                    "player_id": resolved_player_id,
+                    "route": "ma_client.handoff_playback_url",
+                }
+            )
+        )
         try:
             worker_handoff_details = await _request_worker_handoff(
                 request_id=request_id,

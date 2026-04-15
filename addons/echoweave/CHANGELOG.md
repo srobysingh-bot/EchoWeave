@@ -5,6 +5,27 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.54] - 2026-04-15
+
+### Changed
+
+- Bump add-on version to `0.3.54` for fix validation.
+
+## [0.3.53] - 2026-04-15
+
+### Changed
+
+- Bump add-on version to `0.3.53`.
+
+## [0.3.52] - 2026-04-14
+
+### Fixed
+
+- Tighten prototype-skill invocation proof path: `/ma/push-url` now treats success as observed stream fetch OR `AudioPlayer.PlaybackStarted` callback.
+- Replace assumption-style `alexa_audio_player_play_sent` marker with `alexa_audio_player_play_response_expected` to avoid false acceptance semantics.
+- Improve cross-service correlation for play attempts with explicit `play_request_id`, `playback_started`, and `last_event_type` status signals.
+- Keep strict AudioPlayer response validation and payload logging (`alexa_audio_player_play_response_built`, `alexa_audio_player_play_response_sent`, response payload log).
+
 ## [0.3.51] - 2026-04-14
 
 ### Fixed

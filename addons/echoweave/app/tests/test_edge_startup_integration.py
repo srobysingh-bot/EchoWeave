@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import logging
+
 from fastapi.testclient import TestClient
 
 from app.core.service_registry import registry
 from app.main import create_app
+from app.ma import router as ma_router
 
 
 class _FakeResponse:
@@ -134,3 +138,176 @@ def test_ma_push_url_exempt_from_ui_auth(monkeypatch):
         # /ma/push-url must remain callable by MA provider without UI credentials.
         ma_resp = client.post("/ma/push-url", json={})
         assert ma_resp.status_code != 401
+
+
+class _FakeConfigService:
+    def __init__(self, *, is_edge_mode: bool = True, home_id: str = "home-a") -> None:
+        self.settings = type(
+            "_Settings",
+            (),
+            {
+                "is_edge_mode": is_edge_mode,
+                "home_id": home_id,
+                "worker_base_url": "https://worker.example.com",
+                "connector_id": "conn-a",
+                "connector_secret": "conn-secret",
+                "tenant_id": "tenant-a",
+                "ma_base_url": "http://ma.local:8095",
+                "ma_token": "token",
+                "public_base_url": "https://public.example.com",
+                "stream_base_url": "https://stream.example.com",
+            },
+        )()
+
+
+class _FakeMAClient:
+    def __init__(self, players: list[dict[str, object]]) -> None:
+        self._players = players
+        self.handoff_calls: list[dict[str, object]] = []
+
+    async def get_players(self):
+        return self._players
+
+    async def handoff_playback_url(self, **kwargs):
+        self.handoff_calls.append(kwargs)
+        return True, "ok", {"handoff": "ok"}
+
+
+class _CaptureLogger:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def info(self, message, *args, **kwargs):
+        self.messages.append(str(message) % args if args else str(message))
+
+    def warning(self, message, *args, **kwargs):
+        self.messages.append(str(message) % args if args else str(message))
+
+    def error(self, message, *args, **kwargs):
+        self.messages.append(str(message) % args if args else str(message))
+
+    def exception(self, message, *args, **kwargs):
+        self.messages.append(str(message) % args if args else str(message))
+
+
+def test_ma_push_url_rejects_prototype_skill_without_active_context(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _FakeMAClient([
+                {"player_id": "echo-spot", "name": "Echo Spot", "provider": "alexa"},
+            ]),
+        )
+        registry.register("alexa_probe_state", {"probe_id": "", "probe_time": ""})
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+            },
+        )
+
+    assert resp.status_code == 502
+    assert resp.json()["reason"] == "no_active_alexa_skill_session"
+    assert any("alexa_request_context_missing" in message for message in capture_logger.messages)
+    assert any("prototype_skill_response_skipped_no_active_request" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_allows_prototype_skill_with_recent_context(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+
+    async def _fake_request_worker_handoff(**kwargs):
+        return {
+            "stream_url": "https://worker.example.com/v1/stream/token-123",
+            "playback_session_id": "session-123",
+            "stream_token_id": "token-123",
+        }
+
+    async def _fake_wait_for_worker_stream_fetch_start(**kwargs):
+        return True, {"stream_fetch_started": True, "playback_started": False}
+
+    async def _fake_readback_player_state(**kwargs):
+        return {"player_id": "echo-spot", "playback_state": "playing", "queue_length": 1}
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fake_request_worker_handoff)
+    monkeypatch.setattr(ma_router, "_wait_for_worker_stream_fetch_start", _fake_wait_for_worker_stream_fetch_start)
+    monkeypatch.setattr(ma_router, "_readback_player_state", _fake_readback_player_state)
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _FakeMAClient([
+                {"player_id": "echo-spot", "name": "Echo Spot", "provider": "alexa"},
+            ]),
+        )
+        registry.register(
+            "alexa_probe_state",
+            {
+                "probe_id": "probe-123",
+                "probe_time": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/echo-spot/item-1",
+                "provider": "alexa",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert any("alexa_request_context_found" in message for message in capture_logger.messages)
+    assert any("prototype_skill_response_attached" in message for message in capture_logger.messages)
+
+
+def test_ma_push_url_routes_ui_play_to_provider_api(monkeypatch):
+    _set_edge_env(monkeypatch)
+    _mock_edge_startup(monkeypatch)
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(ma_router, "logger", capture_logger)
+
+    async def _fake_request_worker_handoff(**kwargs):
+        return {
+            "stream_url": "https://worker.example.com/v1/stream/token-456",
+            "playback_session_id": "session-456",
+            "stream_token_id": "token-456",
+        }
+
+    monkeypatch.setattr(ma_router, "_request_worker_handoff", _fake_request_worker_handoff)
+    monkeypatch.setattr(ma_router, "_build_public_playback_url", lambda stream_url, settings: "https://public.example.com/flow/session-a/living-room/item-1")
+
+    app = create_app()
+    with TestClient(app) as client:
+        registry.register("config_service", _FakeConfigService())
+        registry.register(
+            "ma_client",
+            _FakeMAClient([
+                {"player_id": "living-room", "name": "Living Room Speaker", "provider": "generic"},
+            ]),
+        )
+        registry.register("alexa_probe_state", {"probe_id": "", "probe_time": ""})
+
+        resp = client.post(
+            "/ma/push-url",
+            json={
+                "streamUrl": "/flow/session-a/living-room/item-1",
+                "provider": "musicassistant",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert any("ui_play_routed_to_alexa_provider_api" in message for message in capture_logger.messages)
