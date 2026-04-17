@@ -599,6 +599,30 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     return json(buildAlexaSpeechResponse("Your account is not linked to a home yet."), 200);
   }
 
+  // Ensure the Alexa user has an alexa_accounts entry so that downstream
+  // foreign-key references (playback_sessions.alexa_user_id) do not fail.
+  // This handles the case where resolveHomeByAlexaUser used the
+  // sole-active-home fallback and the user ID is not yet in alexa_accounts.
+  try {
+    // alexa_accounts.user_id → users.id FK: ensure a users row exists first.
+    await env.ECHOWEAVE_DB.prepare(
+      `INSERT OR IGNORE INTO users (id, tenant_id) VALUES (?, ?)`
+    ).bind(alexaUserId, home.tenant_id).run();
+    await env.ECHOWEAVE_DB.prepare(
+      `INSERT OR IGNORE INTO alexa_accounts (alexa_user_id, user_id, tenant_id, home_id)
+       VALUES (?, ?, ?, ?)`
+    ).bind(alexaUserId, alexaUserId, home.tenant_id, home.home_id).run();
+  } catch (linkErr) {
+    console.warn(JSON.stringify({
+      event: "alexa_auto_link_failed",
+      request_id: requestId,
+      alexa_user_id: alexaUserId,
+      tenant_id: home.tenant_id,
+      home_id: home.home_id,
+      error: linkErr instanceof Error ? linkErr.message : "unknown",
+    }));
+  }
+
   // Log 7: DO command dispatch
   console.info(JSON.stringify({
     event: "alexa_do_dispatch",
@@ -709,6 +733,12 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Could not resolve a playable item.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
     return json(payload, 200);
   }
+
+  // Wrap token generation, D1 session/token writes, and response building
+  // in a try/catch so that failures (e.g. foreign-key violations, D1 errors)
+  // return a valid Alexa speech response instead of a raw 500 error which
+  // Alexa cannot parse ("There was a problem with the requested skill's response").
+  try {
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const ttl = Number(env.STREAM_TOKEN_TTL_SECONDS ?? "300");
@@ -858,5 +888,20 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
   }));
 
   return json(payload);
+  } catch (sessionError) {
+    const errorMessage = sessionError instanceof Error ? sessionError.message : "unknown";
+    console.warn(JSON.stringify({
+      event: "alexa_play_session_creation_failed",
+      request_id: requestId,
+      tenant_id: home.tenant_id,
+      home_id: home.home_id,
+      queue_id: prepared.queue_id,
+      queue_item_id: prepared.queue_item_id,
+      error: errorMessage,
+    }));
+    const fallbackPayload = buildAlexaSpeechResponse("I found the track but could not start playback. Please try again.");
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "session-creation-failed", has_audio_player_play: false }));
+    return json(fallbackPayload, 200);
+  }
 }
 

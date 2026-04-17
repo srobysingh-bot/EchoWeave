@@ -228,6 +228,14 @@ export class MockD1Database {
       return;
     }
 
+    if (sql.startsWith("insert or ignore into users")) {
+      const [id, tenantId] = args as [string, string];
+      if (!this.users.has(id)) {
+        this.users.set(id, { id, tenant_id: tenantId, email: null });
+      }
+      return;
+    }
+
     if (sql.startsWith("update users set email = ?, updated_at = current_timestamp where id = ? and tenant_id = ?")) {
       const [email, id, tenantId] = args as [string | null, string, string];
       const user = this.users.get(id);
@@ -243,6 +251,19 @@ export class MockD1Database {
         tenant_id: tenantId,
         home_id: homeId,
       });
+      return;
+    }
+
+    if (sql.startsWith("insert or ignore into alexa_accounts")) {
+      const [alexaUserId, userId, tenantId, homeId] = args as [string, string, string, string];
+      if (!this.alexaAccounts.has(alexaUserId)) {
+        this.alexaAccounts.set(alexaUserId, {
+          alexa_user_id: alexaUserId,
+          user_id: userId,
+          tenant_id: tenantId,
+          home_id: homeId,
+        });
+      }
       return;
     }
 
