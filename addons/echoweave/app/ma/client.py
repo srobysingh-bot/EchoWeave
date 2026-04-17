@@ -355,6 +355,14 @@ class MusicAssistantClient:
     def _player_inventory_snapshot(self, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for player in players:
+            current_media = player.get("current_media")
+            media_preview: dict[str, str] = {}
+            if isinstance(current_media, dict):
+                media_preview = {
+                    "title": str(current_media.get("title") or ""),
+                    "artist": str(current_media.get("artist") or ""),
+                    "uri": str(current_media.get("uri") or "")[:80],
+                }
             out.append(
                 {
                     "player_id": str(player.get("player_id") or ""),
@@ -362,10 +370,12 @@ class MusicAssistantClient:
                     "provider": str(player.get("provider") or player.get("source") or ""),
                     "available": bool(player.get("available", True)),
                     "powered": bool(player.get("powered", True)),
-                    "state": str(player.get("state") or ""),
+                    "state": str(player.get("state") or player.get("playback_state") or ""),
                     "active_queue": str(player.get("active_queue") or ""),
                     "active_source": str(player.get("active_source") or ""),
                     "queue_id": str(player.get("queue_id") or ""),
+                    "has_current_media": current_media is not None,
+                    "current_media": media_preview,
                 }
             )
         return out
@@ -1278,30 +1288,85 @@ class MusicAssistantClient:
         # the MA library for that content, and enqueue it.
         try:
             fallback_players = await self.get_players()
-            for fp in fallback_players:
-                fp_state = str(fp.get("state") or "").lower()
-                if fp_state not in ("playing", "paused"):
-                    continue
+
+            def _extract_media_query(fp: dict[str, Any]) -> str:
+                """Extract a search query from a player's current media info."""
+                # MA serialises current_media as a nested dict with title/artist
                 current_media = fp.get("current_media") or fp.get("current_item") or {}
                 if isinstance(current_media, dict):
-                    title = str(current_media.get("title") or current_media.get("name") or "")
-                    artist = str(current_media.get("artist") or "")
+                    title = str(
+                        current_media.get("title")
+                        or current_media.get("name")
+                        or current_media.get("uri")
+                        or ""
+                    ).strip()
+                    artist = str(current_media.get("artist") or "").strip()
                 else:
                     title = ""
                     artist = ""
+                # Also check top-level player fields as some providers put info there
                 if not title:
+                    title = str(fp.get("media_title") or fp.get("title") or "").strip()
+                if not artist:
+                    artist = str(fp.get("media_artist") or fp.get("artist") or "").strip()
+                if not title:
+                    return ""
+                return f"{title} {artist}".strip()
+
+            # Log full diagnostic for every player so we can debug in production
+            for fp in fallback_players:
+                fp_state = str(fp.get("state") or fp.get("playback_state") or "").lower()
+                logger.warning(json.dumps({
+                    **log_ctx,
+                    "phase": "now_playing_fallback_player_scan",
+                    "player_id": str(fp.get("player_id") or ""),
+                    "player_name": str(fp.get("name") or ""),
+                    "player_state": fp_state,
+                    "has_current_media": fp.get("current_media") is not None,
+                    "current_media_preview": {
+                        k: str(v)[:80] for k, v in (fp.get("current_media") or {}).items()
+                    } if isinstance(fp.get("current_media"), dict) else str(fp.get("current_media") or "")[:80],
+                    "extracted_query": _extract_media_query(fp),
+                }))
+
+            # Two-pass search: first prefer actively-playing players, then any
+            # player that has current_media regardless of state.
+            active_states = {"playing", "paused", "buffering"}
+            ordered_players: list[dict[str, Any]] = []
+            deferred_players: list[dict[str, Any]] = []
+            for fp in fallback_players:
+                fp_state = str(fp.get("state") or fp.get("playback_state") or "").lower()
+                if fp_state in active_states:
+                    ordered_players.append(fp)
+                else:
+                    deferred_players.append(fp)
+            ordered_players.extend(deferred_players)
+
+            for fp in ordered_players:
+                fallback_query = _extract_media_query(fp)
+                if not fallback_query:
                     continue
-                fallback_query = f"{title} {artist}".strip()
+                fp_id = str(fp.get("player_id") or "")
+                # Use the best available queue_id: requested > player's active_queue > player_id
+                fallback_queue_id = (
+                    requested_queue_id
+                    or self._sanitize_queue_id(
+                        str(fp.get("active_queue") or fp.get("active_source") or fp.get("queue_id") or fp_id or ""),
+                        source="now_playing_fallback",
+                    )
+                )
                 logger.warning(json.dumps({
                     **log_ctx,
                     "phase": "now_playing_fallback",
-                    "player_id": str(fp.get("player_id") or ""),
+                    "player_id": fp_id,
                     "player_name": str(fp.get("name") or ""),
+                    "player_state": str(fp.get("state") or fp.get("playback_state") or ""),
                     "fallback_query": fallback_query,
+                    "fallback_queue_id": fallback_queue_id,
                 }))
                 playable = await self._resolve_query_play_request(
                     query=fallback_query,
-                    queue_id=requested_queue_id,
+                    queue_id=fallback_queue_id,
                     intent_name=intent_name,
                     request_id=request_id,
                     home_id=home_id,
@@ -1314,6 +1379,7 @@ class MusicAssistantClient:
                         "result": "now_playing_fallback_resolved",
                         "queue_id": playable.get("queue_id"),
                         "queue_item_id": playable.get("queue_item_id"),
+                        "source_player_id": fp_id,
                     }))
                     return playable
         except Exception as fallback_exc:
