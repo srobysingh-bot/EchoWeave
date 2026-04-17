@@ -194,7 +194,8 @@ export class HomeSession {
     if (!body.command_type) return this.json({ error: "missing-command-type" }, 400);
 
     const requestId = crypto.randomUUID();
-    const timeoutMs = Math.max(1000, Math.min(Number(body.timeout_ms ?? 8000), 20000));
+    const rawTimeout = Number(body.timeout_ms ?? 8000);
+    const timeoutMs = Math.max(1000, Math.min(Number.isFinite(rawTimeout) ? rawTimeout : 8000, 20000));
     const envelope: ConnectorCommandEnvelope = {
       type: "command",
       request_id: requestId,

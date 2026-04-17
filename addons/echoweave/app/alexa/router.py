@@ -153,10 +153,10 @@ async def alexa_webhook(request: Request) -> JSONResponse:
             )
 
         elif request_type.startswith("PlaybackController."):
-            # TODO: Implement PlaybackController commands.
-            logger.info("PlaybackController request received: %s", request_type)
+            from app.alexa.playback_controller import handle_playback_controller
+            result = await handle_playback_controller(body)
             return _json_response(
-                payload=build_response(),
+                payload=result,
                 status_code=200,
                 request_type=request_type,
                 intent_name=intent_name,

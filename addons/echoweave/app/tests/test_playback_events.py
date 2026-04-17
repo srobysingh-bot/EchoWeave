@@ -11,7 +11,19 @@ os.environ["ECHOWEAVE_ALEXA_VALIDATION_MODE"] = "dev"
 
 from app.main import app
 
-def test_nearly_finished_ignores_invalid_token():
+
+def _bypass_validators(monkeypatch):
+    """Disable timestamp and signature checks for test payloads."""
+    monkeypatch.setattr("app.alexa.validators.verify_alexa_timestamp", lambda body: True)
+
+    async def _ok_sig(request, raw_body, enforce=True):
+        return True
+
+    monkeypatch.setattr("app.alexa.validators.verify_alexa_signature", _ok_sig)
+
+
+def test_nearly_finished_ignores_invalid_token(monkeypatch):
+    _bypass_validators(monkeypatch)
     now = datetime.now(timezone.utc).isoformat()
     with TestClient(app) as client:
         payload = {
@@ -31,6 +43,7 @@ def test_nearly_finished_ignores_invalid_token():
     assert "directives" not in data.get("response", {})
 
 def test_nearly_finished_handles_missing_registry(monkeypatch):
+    _bypass_validators(monkeypatch)
     now = datetime.now(timezone.utc).isoformat()
     with TestClient(app) as client:
         payload = {
@@ -49,13 +62,13 @@ def test_nearly_finished_handles_missing_registry(monkeypatch):
     data = resp.json()
     assert "directives" not in data.get("response", {})
 
-def test_nearly_finished_success_enqueue():
+def test_nearly_finished_success_enqueue(monkeypatch):
+    _bypass_validators(monkeypatch)
     from app.core.service_registry import registry
     from app.ma.models import MAQueueItem, MAStreamDetails
 
     now = datetime.now(timezone.utc).isoformat()
     
-    mock_ma = AsyncMock()
     mock_item = MAQueueItem(
         queue_id="q1",
         queue_item_id="item2",
@@ -64,7 +77,6 @@ def test_nearly_finished_success_enqueue():
         image="http://img",
         streamdetails=MAStreamDetails(url="https://public.example.com/stream/item2")
     )
-    mock_ma.get_queue_items.return_value = [mock_item]
     
     mock_cfg = MagicMock()
     mock_cfg.settings.stream_base_url = "https://public.example.com"
@@ -73,11 +85,14 @@ def test_nearly_finished_success_enqueue():
     
     mock_sessions = MagicMock()
     
-    registry.register("ma_client", mock_ma)
-    registry.register("config_service", mock_cfg)
-    registry.register("session_store", mock_sessions)
-    
     with TestClient(app) as client:
+        # Register mocks AFTER lifespan starts to override real services
+        mock_ma = AsyncMock()
+        mock_ma.get_next_queue_item.return_value = mock_item
+        registry.register("ma_client", mock_ma)
+        registry.register("config_service", mock_cfg)
+        registry.register("session_store", mock_sessions)
+
         payload = {
             "version": "1.0",
             "request": {
@@ -102,22 +117,23 @@ def test_nearly_finished_success_enqueue():
     assert d["audioItem"]["stream"]["expectedPreviousToken"] == "ma:q1:item1"
     assert d["audioItem"]["stream"]["token"] == "ma:q1:item2"
 
-def test_nearly_finished_queue_exhaustion():
+def test_nearly_finished_queue_exhaustion(monkeypatch):
+    _bypass_validators(monkeypatch)
     from app.core.service_registry import registry
 
     now = datetime.now(timezone.utc).isoformat()
     
-    mock_ma = AsyncMock()
-    mock_ma.get_queue_items.return_value = []
-    
     mock_cfg = MagicMock()
     mock_cfg.settings.stream_base_url = "https://public.example.com"
+    mock_cfg.settings.allow_insecure_local_test = False
     mock_cfg.settings.alexa_validation_mode = "dev"
     
-    registry.register("ma_client", mock_ma)
-    registry.register("config_service", mock_cfg)
-    
     with TestClient(app) as client:
+        mock_ma = AsyncMock()
+        mock_ma.get_next_queue_item.return_value = None
+        registry.register("ma_client", mock_ma)
+        registry.register("config_service", mock_cfg)
+
         payload = {
             "version": "1.0",
             "request": {

@@ -1,7 +1,9 @@
 """Handle Alexa AudioPlayer lifecycle events.
 
 These events are sent by the Alexa service to notify the skill about
-changes in playback state on the device.
+changes in playback state on the device.  Each handler updates the local
+session store and forwards relevant state changes to Music Assistant so
+both sides stay in sync.
 """
 
 from __future__ import annotations
@@ -13,9 +15,22 @@ from typing import Any
 
 from app.alexa.response_builder import build_response
 from app.alexa.session_store import get_session_store
+from app.alexa.token_mapper import decode_token
+from app.core.service_registry import registry
 from app.storage.models import PlayState
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_get_session_store():
+    """Return the session store if available, or None."""
+    store = registry.get_optional("session_store")
+    if store is not None:
+        return store
+    try:
+        return get_session_store()
+    except RuntimeError:
+        return None
 
 
 async def handle_playback_event(body: dict[str, Any]) -> dict[str, Any]:
@@ -23,6 +38,33 @@ async def handle_playback_event(body: dict[str, Any]) -> dict[str, Any]:
     request_type = body.get("request", {}).get("type", "")
     handler = _EVENT_MAP.get(request_type, _handle_unknown_event)
     return await handler(body)
+
+
+# ---------------------------------------------------------------------------
+# MA sync helper
+# ---------------------------------------------------------------------------
+
+async def _sync_state_to_ma(token: str, action: str) -> None:
+    """Best-effort forward of Alexa playback state changes to MA."""
+    parts = decode_token(token)
+    if not parts:
+        return
+    ma_client = registry.get_optional("ma_client")
+    if not ma_client:
+        return
+    try:
+        if action == "stopped":
+            await ma_client._post_command_with_fallback(
+                ["player_queues/pause", "playerqueues/pause", "players/cmd/pause"],
+                queue_id=parts.queue_id,
+            )
+        elif action == "playing":
+            await ma_client._post_command_with_fallback(
+                ["player_queues/play", "playerqueues/play"],
+                queue_id=parts.queue_id,
+            )
+    except Exception:
+        logger.debug("Failed to sync %s state to MA for queue %s", action, parts.queue_id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +105,16 @@ async def _handle_playback_started(body: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    store = get_session_store()
-    store.update_session(
-        device_id=ctx["device_id"],
-        play_state=PlayState.PLAYING,
-        current_track_token=ctx["token"],
-        last_event_type="PlaybackStarted",
-    )
+    store = _safe_get_session_store()
+    if store:
+        parts = decode_token(ctx["token"])
+        store.update_session(
+            device_id=ctx["device_id"],
+            play_state=PlayState.PLAYING,
+            current_track_token=ctx["token"],
+            queue_id=parts.queue_id if parts else None,
+            last_event_type="PlaybackStarted",
+        )
     return build_response()
 
 
@@ -87,12 +132,13 @@ async def _handle_playback_stopped(body: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    store = get_session_store()
-    store.update_session(
-        device_id=ctx["device_id"],
-        play_state=PlayState.STOPPED,
-        last_event_type="PlaybackStopped",
-    )
+    store = _safe_get_session_store()
+    if store:
+        store.update_session(
+            device_id=ctx["device_id"],
+            play_state=PlayState.STOPPED,
+            last_event_type="PlaybackStopped",
+        )
     return build_response()
 
 
@@ -100,12 +146,13 @@ async def _handle_playback_finished(body: dict[str, Any]) -> dict[str, Any]:
     ctx = _extract_event_context(body)
     logger.info("PlaybackFinished — device=%s token=%s", ctx["device_id"], ctx["token"])
 
-    store = get_session_store()
-    store.update_session(
-        device_id=ctx["device_id"],
-        play_state=PlayState.FINISHED,
-        last_event_type="PlaybackFinished",
-    )
+    store = _safe_get_session_store()
+    if store:
+        store.update_session(
+            device_id=ctx["device_id"],
+            play_state=PlayState.FINISHED,
+            last_event_type="PlaybackFinished",
+        )
     return build_response()
 
 
@@ -132,12 +179,13 @@ async def _handle_playback_failed(body: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    store = get_session_store()
-    store.update_session(
-        device_id=ctx["device_id"],
-        play_state=PlayState.FAILED,
-        last_event_type="PlaybackFailed",
-    )
+    store = _safe_get_session_store()
+    if store:
+        store.update_session(
+            device_id=ctx["device_id"],
+            play_state=PlayState.FAILED,
+            last_event_type="PlaybackFailed",
+        )
     return build_response()
 
 
@@ -153,11 +201,12 @@ async def _handle_playback_nearly_finished(body: dict[str, Any]) -> dict[str, An
     ctx = _extract_event_context(body)
     logger.info("PlaybackNearlyFinished — device=%s token=%s", ctx["device_id"], ctx["token"])
 
-    store = get_session_store()
-    store.update_session(
-        device_id=ctx["device_id"],
-        last_event_type="PlaybackNearlyFinished",
-    )
+    store = _safe_get_session_store()
+    if store:
+        store.update_session(
+            device_id=ctx["device_id"],
+            last_event_type="PlaybackNearlyFinished",
+        )
 
     token = ctx["token"]
     if not token.startswith("ma:"):
@@ -171,13 +220,12 @@ async def _handle_playback_nearly_finished(body: dict[str, Any]) -> dict[str, An
 
     queue_id = parts[1]
 
-    from app.core.service_registry import registry
     from app.ma.queue_mapper import QueueMapper
     from app.ma.stream_resolver import StreamResolver
     from app.alexa.directives import enqueue_directive
 
-    client = registry.get("ma_client")
-    cfg = registry.get("config_service")
+    client = registry.get_optional("ma_client")
+    cfg = registry.get_optional("config_service")
     if not client or not cfg:
         logger.error("PlaybackNearlyFinished: Missing dependencies in registry!")
         return build_response()
@@ -193,17 +241,19 @@ async def _handle_playback_nearly_finished(body: dict[str, Any]) -> dict[str, An
 
     if not next_track:
         logger.info("PlaybackNearlyFinished: No next track in queue %s", queue_id)
-        store.update_session(
-            device_id=ctx["device_id"],
-            expected_next_token="",
-        )
+        if store:
+            store.update_session(
+                device_id=ctx["device_id"],
+                expected_next_token="",
+            )
         return build_response()
 
     logger.info("PlaybackNearlyFinished: Enqueueing next track %s", next_track["token"])
-    store.update_session(
-        device_id=ctx["device_id"],
-        expected_next_token=next_track["token"],
-    )
+    if store:
+        store.update_session(
+            device_id=ctx["device_id"],
+            expected_next_token=next_track["token"],
+        )
 
     directive = enqueue_directive(
         url=next_track["url"],

@@ -803,7 +803,8 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       play_request_id: requestId,
       playback_session_id: playbackSessionId,
       stream_token_id: tokenId,
-      response_payload: payload,
+      stream_url_host: streamSummary.host,
+      stream_url_path: streamSummary.path,
     }),
   );
 
@@ -850,10 +851,10 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
     title: prepared.title,
     playback_session_id: playbackSessionId,
     stream_token_id: tokenId,
-    stream_url: streamUrl,
+    stream_url_host: streamSummary.host,
+    stream_url_path: streamSummary.path,
     origin_stream_path: prepared.origin_stream_path,
     has_audio_player_play: hasAudioPlayerDirective(payload),
-    response_payload: payload,
   }));
 
   return json(payload);

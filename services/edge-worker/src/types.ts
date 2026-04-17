@@ -20,8 +20,13 @@ export interface Env {
 export interface AlexaRequestEnvelope {
   version?: string;
   session?: {
+    sessionId?: string;
+    new?: boolean;
     user?: {
       userId?: string;
+    };
+    application?: {
+      applicationId?: string;
     };
   };
   context?: {
@@ -32,11 +37,15 @@ export interface AlexaRequestEnvelope {
       device?: {
         deviceId?: string;
       };
+      application?: {
+        applicationId?: string;
+      };
     };
   };
   request?: {
     type?: string;
     timestamp?: string;
+    locale?: string;
     intent?: {
       name?: string;
       slots?: Record<string, unknown>;

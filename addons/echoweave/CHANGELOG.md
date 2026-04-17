@@ -5,6 +5,26 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.57] - 2026-04-17
+
+### Changed
+
+- Bump add-on version to `0.3.57`.
+- Bump edge-worker version to `0.1.6`.
+
+### Fixed
+
+- Wire all Alexa intent handlers (Play, Pause, Resume, Next, Previous, Stop) to Music Assistant via QueueMapper/StreamResolver instead of returning stub text.
+- Create PlaybackController module for physical button presses on Echo devices.
+- Fix bidirectional state sync: pause/stop/next/previous now forward to MA so playback state stays consistent.
+- Make playback_events.py resilient in edge mode with safe session store access.
+- Fix edge-worker mock DB args shift causing connector registration test failure.
+- Add bearer auth to `/v1/admin/debug-info` to prevent cross-tenant data leakage.
+- Remove bootstrap secret from debug-info response payload.
+- Stop logging full stream URLs/tokens to prevent replay from log access.
+- Fix incomplete `AlexaRequestEnvelope` TypeScript type (missing sessionId, locale, application fields).
+- Add `timeout_ms` type coercion in HomeSession durable object to handle string inputs safely.
+
 ## [0.3.56] - 2026-04-15
 
 ### Changed

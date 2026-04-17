@@ -130,6 +130,14 @@ export default {
       }
 
       if (pathname === "/v1/admin/debug-info" && request.method === "GET") {
+        const adminKey = (env.ADMIN_API_KEY ?? "").trim();
+        const bearer = request.headers.get("authorization") ?? "";
+        const suppliedToken = bearer.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : "";
+        if (!adminKey || suppliedToken !== adminKey) {
+          const resp = withCors(json({ error: "unauthorized", request_id: requestId }, 401));
+          resp.headers.set("x-request-id", requestId);
+          return resp;
+        }
         const recentUser = await env.ECHOWEAVE_DB.prepare("SELECT * FROM recent_alexa_users ORDER BY last_seen DESC LIMIT 1").first<{ alexa_user_id: string }>();
         const alexaUserId = recentUser?.alexa_user_id ?? "No failed user ID logged recently.";
         
@@ -149,7 +157,6 @@ export default {
           resolved_home_id: resolution?.home_id ?? null,
           queue_id: resolution?.alexa_source_queue_id ?? null,
           origin_base_url_present: !!resolution?.origin_base_url,
-          worker_expected_bootstrap_secret: env.CONNECTOR_BOOTSTRAP_SECRET ?? null,
         };
         return withCors(json(debugPayload, 200));
       }

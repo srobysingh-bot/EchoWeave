@@ -553,7 +553,8 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
 
     const streamUrl = `${new URL(request.url).origin}/v1/stream/${encodeURIComponent(streamToken)}`;
     logStep("stream_url_built", {
-      stream_url: streamUrl,
+      stream_url_host: new URL(streamUrl).host,
+      stream_url_path: new URL(streamUrl).pathname,
     });
 
     console.info(
@@ -565,7 +566,8 @@ export async function handleConnectorPlaybackHandoff(request: Request, env: Env)
         home_id: homeId,
         playback_session_id: playbackSessionId,
         stream_token_id: tokenId,
-        stream_url: streamUrl,
+        stream_url_host: new URL(streamUrl).host,
+        stream_url_path: new URL(streamUrl).pathname,
         runtime,
       }),
     );

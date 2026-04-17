@@ -93,10 +93,8 @@ def test_play_intent_still_returns_success_response(monkeypatch):
     response = data.get("response", {})
     assert "outputSpeech" in response
     assert response.get("shouldEndSession") is True
-    assert (
-        response["outputSpeech"].get("text")
-        == "EchoWeave received your play request, but full playback integration is not complete yet."
-    )
+    # Without MA client registered, the handler returns a setup prompt
+    assert "Music Assistant" in response["outputSpeech"].get("text", "")
 
 
 def test_playaudio_intent_maps_to_play_handler(monkeypatch):
@@ -120,10 +118,7 @@ def test_playaudio_intent_maps_to_play_handler(monkeypatch):
     response = data.get("response", {})
     assert response.get("shouldEndSession") is True
     assert "outputSpeech" in response
-    assert (
-        response["outputSpeech"].get("text")
-        == "EchoWeave received your play request, but full playback integration is not complete yet."
-    )
+    # PlayAudio maps to same handler as PlayIntent, not the unknown fallback
     assert response["outputSpeech"].get("text") != "Sorry, I don't understand that command."
 
 

@@ -59,23 +59,25 @@ Run this sequence in order:
    - Wait for a successful build before testing on device.
 2. Disable and re-enable the development skill in the Alexa app:
    - Confirm you are using the same Amazon account linked to your developer profile.
+   - If invocation name was changed, wait **60 seconds** before voice re-test.
 3. Verify locale alignment exactly:
    - Skill locale: **English (IN)**
    - Echo Spot language: **English (India)**
 4. Check Alexa voice history transcript for both launch phrases:
-   - `Alexa, open weave bridge`
-   - `Alexa, ask weave bridge`
-5. Search for conflicting old skills, duplicate test skills, or old versions and disable them.
-6. Re-open the Alexa app skill page and verify launch phrase examples are no longer stale template text (for example old "hello world" examples).
-7. If stale metadata still appears after rebuild + re-enable, create a clean new custom skill with a fresh invocation name and point it to the same Worker endpoint, then retest on device.
+   - `Computer, open weave player`
+   - `Computer, ask weave player`
+5. Confirm the physical Echo Spot is logged into the same Amazon developer account used in Alexa Developer Console.
+6. Search for conflicting old skills, duplicate test skills, or old versions with similar invocation names and disable them.
+7. Re-open the Alexa app skill page and verify launch phrase examples are no longer stale template text (for example old "hello world" examples).
+8. If stale metadata still appears after rebuild + re-enable, create a clean new custom skill with a fresh invocation name and point it to the same Worker endpoint, then retest on device.
 
-Only move to playback debugging after real device launch succeeds.
+Do not continue playback debugging until real-device launch succeeds.
 
 Acceptance gate for launch-path readiness:
 
-- Real Echo Spot speaks the EchoWeave welcome message.
+- Real Echo Spot speaks the skill welcome message after voice invocation.
 - Alexa app reflects the correct skill metadata and invocation.
-- Worker logs show an inbound Alexa request/session from the physical device.
+- Worker logs show a real `LaunchRequest` from the physical device.
 
 ## UI-Initiated Playback Limitation
 

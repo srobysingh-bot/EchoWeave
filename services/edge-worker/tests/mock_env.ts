@@ -189,10 +189,11 @@ export class MockD1Database {
     }
 
     if (sql.startsWith("insert into homes (id, tenant_id, name, origin_base_url, alexa_source_queue_id, connector_id, is_active)")) {
-      const [id, tenantId, name, originBaseUrl, queueId, connectorId] = args as [
+      // SQL uses literal NULL for name: VALUES (?, ?, NULL, ?, ?, ?, 1)
+      // So only 5 bound args: id, tenantId, originBaseUrl, queueId, connectorId
+      const [id, tenantId, originBaseUrl, queueId, connectorId] = args as [
         string,
         string,
-        string | null,
         string | null,
         string | null,
         string | null,
@@ -201,7 +202,7 @@ export class MockD1Database {
       this.homes.set(id, {
         id,
         tenant_id: tenantId,
-        name: name ?? existing?.name ?? null,
+        name: existing?.name ?? null,
         origin_base_url: originBaseUrl ?? existing?.origin_base_url ?? null,
         alexa_source_queue_id: queueId ?? existing?.alexa_source_queue_id ?? null,
         connector_id: connectorId ?? existing?.connector_id ?? null,
