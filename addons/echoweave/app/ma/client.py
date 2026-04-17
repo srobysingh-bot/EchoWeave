@@ -558,6 +558,43 @@ class MusicAssistantClient:
             )
         )
 
+        # When skip_playback_start is True (Alexa flow), bypass play_media
+        # entirely.  play_media would try to play on the Echo Dot which always
+        # fails with PlayerCommandFailed / 500.  Instead, construct a synthetic
+        # playable result directly from the search result so the Worker can
+        # build an AudioPlayer.Play directive.
+        if skip_playback_start:
+            effective_uri = uri or f"library://{self._singular_media_type(media_type)}/{item_id}"
+            synthetic_queue_id = queue_id or "default"
+            synthetic_item_id = item_id or uri
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "ma_skip_enqueue_synthetic_playable",
+                        "request_id": request_id,
+                        "home_id": home_id,
+                        "player_id": player_id,
+                        "queue_id": synthetic_queue_id,
+                        "queue_item_id": synthetic_item_id,
+                        "uri": effective_uri,
+                        "item_name": str(item.get("name") or ""),
+                    }
+                )
+            )
+            return {
+                "queue_id": synthetic_queue_id,
+                "queue_item_id": synthetic_item_id,
+                "title": str(item.get("name") or ""),
+                "subtitle": str(item.get("artist") or item.get("album") or ""),
+                "artist": str(item.get("artist") or ""),
+                "album": str(item.get("album") or ""),
+                "image_url": str(item.get("image", {}).get("path", "") if isinstance(item.get("image"), dict) else item.get("image_url", "")),
+                "duration": float(item.get("duration") or 0),
+                "uri": effective_uri,
+                "origin_stream_path": f"/edge/stream/{synthetic_queue_id}/{synthetic_item_id}",
+                "content_type": "audio/mpeg",
+            }
+
         payload_candidates: list[dict[str, Any]] = []
         # MA 2.x play_media expects: queue_id + media (uri string or list).
         # We try the URI first (preferred), then item_id-based URIs.
@@ -595,7 +632,7 @@ class MusicAssistantClient:
                     )
                 )
                 response = await self._post_command_with_fallback(
-                    ["player_queues/play_media", "playerqueues/play_media", "players/play_media"],
+                    ["player_queues/play_media", "players/play_media"],
                     **payload,
                 )
                 logger.warning(
@@ -1446,8 +1483,12 @@ class MusicAssistantClient:
 
         Returns ``None`` if no URL can be resolved.
         """
-        # TODO: Confirm the exact MA API path for stream resolution once
-        # integrated with a live MA instance.
+        # Check the stream_router cache first (may have been pre-cached).
+        from app.edge.stream_router import get_cached_stream_url
+        cached = get_cached_stream_url(queue_id, item_id)
+        if cached:
+            return cached
+
         try:
             item = await self.get_queue_item(queue_id, item_id)
             if item and item.streamdetails and item.streamdetails.url:
@@ -1467,7 +1508,25 @@ class MusicAssistantClient:
                 return str(result.get("url") or "") or None
         except MusicAssistantError:
             logger.warning("Stream resolution failed for item %s in queue %s", item_id, queue_id)
-            return None
+
+        # Fallback: if item_id looks like a URI (synthetic item from search),
+        # try to resolve via music/item_by_uri to get stream details.
+        if "://" in item_id:
+            try:
+                media_item = await self._post_command("music/item_by_uri", uri=item_id)
+                if isinstance(media_item, dict):
+                    # Check for stream details
+                    sd = media_item.get("streamdetails") or {}
+                    if isinstance(sd, dict) and sd.get("url"):
+                        return str(sd["url"])
+                    # Use the item's URI as the fallback stream source
+                    resolved_uri = str(media_item.get("uri") or "").strip()
+                    if resolved_uri:
+                        return resolved_uri
+            except MusicAssistantError:
+                logger.warning("URI-based stream resolution failed for %s", item_id)
+
+        return None
 
     async def execute_play_command(self, queue_id: str | None = None) -> tuple[bool, str]:
         """Attempt to start/resume playback through MA command API.

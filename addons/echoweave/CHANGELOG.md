@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.62] - 2026-04-17
+
+### Fixed
+
+- Bypass `play_media` entirely for Alexa flow (`skip_playback_start=True`): MA's Alexa provider cannot command the Echo Dot (PlayerCommandFailed), causing 500/timeouts. Now constructs playable result directly from search results without enqueuing.
+- Enhanced `get_stream_url` with URI-based fallback resolution via `music/item_by_uri` for synthetic items.
+- Stream URL cache integration: check cache before queue lookup in `get_stream_url`.
+- Removed invalid `playerqueues/play_media` command from fallback list (always returned 400).
+
 ## [0.3.61] - 2026-04-17
 
 ### Fixed
