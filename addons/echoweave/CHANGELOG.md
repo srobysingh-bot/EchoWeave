@@ -5,6 +5,19 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.58] - 2026-04-17
+
+### Changed
+
+- Bump add-on version to `0.3.58`.
+
+### Fixed
+
+- Fix queue_empty error: add player_id as queue candidate in auto-discovery (in MA, queue_id = player_id).
+- Add skip_playback_start parameter for edge mode so Alexa AudioPlayer handles playback instead of MA sending PlayerCommandFailed.
+- Add now-playing fallback: extract title/artist from active players and search MA library when queue is empty.
+- Fix 6 pre-existing test failures in handoff and queue resolution mocks.
+
 ## [0.3.57] - 2026-04-17
 
 ### Changed
