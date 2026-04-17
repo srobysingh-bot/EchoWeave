@@ -636,6 +636,28 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
 
   const doId = env.HOME_SESSION.idFromName(`${home.tenant_id}:${home.home_id}`);
   const sessionStub = env.HOME_SESSION.get(doId);
+
+  // Pre-flight: check connector status for diagnostics
+  try {
+    const statusResp = await sessionStub.fetch("https://home-session/status");
+    const statusPayload = await statusResp.json() as { online?: boolean; connector?: unknown };
+    console.info(JSON.stringify({
+      event: "alexa_connector_status_check",
+      request_id: requestId,
+      tenant_id: home.tenant_id,
+      home_id: home.home_id,
+      do_name: `${home.tenant_id}:${home.home_id}`,
+      online: statusPayload.online ?? false,
+      connector: statusPayload.connector ?? null,
+    }));
+  } catch (statusErr) {
+    console.warn(JSON.stringify({
+      event: "alexa_connector_status_check_failed",
+      request_id: requestId,
+      error: statusErr instanceof Error ? statusErr.message : "unknown",
+    }));
+  }
+
   const doResp = await sessionStub.fetch("https://home-session/command", {
     method: "POST",
     headers: { "content-type": "application/json", "x-request-id": requestId },
@@ -722,7 +744,7 @@ export async function handleAlexaWebhookWithContext(request: Request, env: Env, 
       );
     }
     const payload = buildAlexaSpeechResponse("Your home connector is offline. Please try again.");
-    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Your home connector is offline. Please try again.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload }));
+    console.info(JSON.stringify({ event: "alexa_response_sent", request_id: requestId, response_status: 200, speech: "Your home connector is offline. Please try again.", has_audio_player_play: hasAudioPlayerDirective(payload), response_payload: payload, do_status: doResp.status, do_error_body: doErrorText }));
     return json(payload, 200);
   }
 
