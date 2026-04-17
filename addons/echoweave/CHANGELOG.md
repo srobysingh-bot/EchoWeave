@@ -5,6 +5,18 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.59] - 2026-04-17
+
+### Changed
+
+- Bump add-on version to `0.3.59`.
+
+### Fixed
+
+- Robust now-playing fallback: accept any player state with current_media (not just playing/paused), two-pass scan, extract media from more fields, use player's queue_id when none requested.
+- Full diagnostic logging of every player during fallback scan for production debugging.
+- Include current_media preview in player inventory snapshot.
+
 ## [0.3.58] - 2026-04-17
 
 ### Changed
