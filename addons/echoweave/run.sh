@@ -62,6 +62,35 @@ bashio::log.info " Debug:         ${ECHOWEAVE_DEBUG}"
 bashio::log.info " MA Token:      ****"
 bashio::log.info "--------------------------------------------"
 
+# --- Auto-start Cloudflare Quick Tunnel if no tunnel_base_url is configured ---
+if [ -z "$ECHOWEAVE_TUNNEL_BASE_URL" ] && [ "$ECHOWEAVE_MODE" = "edge" ]; then
+    bashio::log.info "No tunnel_base_url configured – starting Cloudflare Quick Tunnel..."
+    TUNNEL_LOG="/data/logs/cloudflared.log"
+    cloudflared tunnel --url http://127.0.0.1:5000 --no-autoupdate > "$TUNNEL_LOG" 2>&1 &
+    CLOUDFLARED_PID=$!
+
+    # Wait for the tunnel URL to appear (up to 30 seconds)
+    TUNNEL_URL=""
+    for i in $(seq 1 30); do
+        if [ -f "$TUNNEL_LOG" ]; then
+            TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
+                break
+            fi
+        fi
+        sleep 1
+    done
+
+    if [ -n "$TUNNEL_URL" ]; then
+        export ECHOWEAVE_TUNNEL_BASE_URL="$TUNNEL_URL"
+        bashio::log.info "Quick Tunnel active: $TUNNEL_URL (PID=$CLOUDFLARED_PID)"
+    else
+        bashio::log.warning "Quick Tunnel failed to start within 30s. Logs:"
+        cat "$TUNNEL_LOG" 2>/dev/null || true
+        bashio::log.warning "Streaming from Alexa will NOT work without a tunnel."
+    fi
+fi
+
 exec python -m uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 5000 \
