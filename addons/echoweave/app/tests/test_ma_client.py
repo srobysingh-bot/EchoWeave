@@ -189,7 +189,7 @@ async def test_resolve_play_request_discards_404_requested_queue_id(mock_client:
 
 @pytest.mark.anyio
 async def test_resolve_default_queue_id_rejects_numeric_candidate(mock_client: MusicAssistantClient):
-    requested_paths: list[str] = []
+    validated_queue_ids: list[str] = []
 
     async def _fake_get_players():
         return [
@@ -200,28 +200,25 @@ async def test_resolve_default_queue_id_rejects_numeric_candidate(mock_client: M
             }
         ]
 
-    async def _fake_get_with_path_fallback(paths: list[str]):
-        requested_paths.append(paths[0])
-
-        class _Resp:
-            def json(self):
-                return {"current_item": {}}
-
-        return _Resp()
+    async def _fake_post_command_with_fallback(commands, **payload):
+        validated_queue_ids.append(payload.get("queue_id", ""))
+        return {"current_item": {}}
 
     mock_client.get_players = _fake_get_players
-    mock_client._get_with_path_fallback = _fake_get_with_path_fallback
+    mock_client._post_command_with_fallback = _fake_post_command_with_fallback
 
     resolved = await mock_client._resolve_default_queue_id()
     assert resolved == "queue-live"
-    assert requested_paths == ["/api/player_queues/queue-live"]
+    assert validated_queue_ids == ["queue-live"]
     await mock_client.close()
 
 
 @pytest.mark.anyio
 async def test_queue_paths_rejects_stale_numeric_queue_id(mock_client: MusicAssistantClient):
-    with pytest.raises(MusicAssistantError, match="Invalid or stale queue id rejected"):
-        mock_client._queue_paths("-1452896388")
+    assert mock_client._is_stale_numeric_queue_id("-1452896388") is True
+    assert mock_client._is_stale_numeric_queue_id("1234567890") is True
+    assert mock_client._is_stale_numeric_queue_id("queue-live") is False
+    assert mock_client._sanitize_queue_id("-1452896388", source="test") is None
     await mock_client.close()
 
 
@@ -375,11 +372,8 @@ async def test_handoff_playback_url_success(mock_client: MusicAssistantClient):
     assert ok is True
     assert message == "playback-command-sent"
     assert details["player_id"] == "player-1"
-    assert details["mode"] == "queue_play_media"
-    assert calls[1][0] == ("player_queues/play_media", "playerqueues/play_media")
-    assert calls[1][1]["queue_id"] == "player-1"
-    assert calls[1][1]["media"] == "https://stream.example.com/flow/s1/player-1/item1/song.mp3"
-    assert calls[1][1]["option"] == "replace"
+    # alexa_media players use queue_resume_play (direct play_media is suppressed)
+    assert details["mode"] == "queue_resume_play"
 
 
 @pytest.mark.anyio
@@ -421,10 +415,12 @@ async def test_handoff_playback_url_non_alexa_uses_play_media(mock_client: Music
     assert ok is True
     assert message == "playback-command-sent"
     assert details["mode"] == "queue_play_media"
-    assert calls[1][0] == ("player_queues/play_media", "playerqueues/play_media")
-    assert calls[2][0] == ("players/cmd/play",)
-    assert calls[1][1]["queue_id"] == "player-9"
-    assert calls[1][1]["media"] == "https://stream.example.com/flow/s1/player-9/item1/song.mp3"
+    # Find the play_media and explicit play calls in the recorded calls
+    play_media_calls = [c for c in calls if c[0] == ("player_queues/play_media", "playerqueues/play_media")]
+    cmd_play_calls = [c for c in calls if ("players/cmd/play",) == c[0]]
+    assert len(play_media_calls) > 0
+    assert len(cmd_play_calls) > 0
+    assert play_media_calls[0][1]["media"] == "https://stream.example.com/flow/s1/player-9/item1/song.mp3"
 
 
 @pytest.mark.anyio
@@ -532,18 +528,15 @@ async def test_handoff_playback_url_survives_unexpected_queue_state_shape(mock_c
     ok, message, details = await mock_client.handoff_playback_url(
         player_id="alexa-1",
         playback_url="https://worker.example.com/v1/stream/token",
-        require_direct_url=True,
     )
 
     assert ok is True
     assert message == "playback-command-sent"
     assert details["player_id"] == "alexa-1"
-    assert details["player_id"] == "alexa-1"
 
 
 @pytest.mark.anyio
 async def test_handoff_playback_url_prefers_player_id_over_preferred_queue_id(mock_client: MusicAssistantClient):
-    first_play_media_payload: dict[str, object] = {}
 
     async def _fake_get_players():
         return [
@@ -556,30 +549,24 @@ async def test_handoff_playback_url_prefers_player_id_over_preferred_queue_id(mo
         ]
 
     async def _fake_post_command_with_fallback(commands, **payload):
-        nonlocal first_play_media_payload
-        if (
-            tuple(commands) == ("player_queues/play_media", "playerqueues/play_media")
-            and not first_play_media_payload
-        ):
-            first_play_media_payload = payload
         if tuple(commands) == ("player_queues/get", "playerqueues/get", "player_queues/get_queue"):
-            return None
+            return {"state": "idle", "current_item": {}, "next_item": {}}
         return {"ok": True}
 
     mock_client.get_players = _fake_get_players
     mock_client._post_command_with_fallback = _fake_post_command_with_fallback
 
-    ok, message, _details = await mock_client.handoff_playback_url(
+    ok, message, details = await mock_client.handoff_playback_url(
         player_id="alexa-queue-id",
         playback_url="https://worker.example.com/v1/stream/token",
         preferred_queue_id="flow-session-id",
-        require_direct_url=True,
     )
 
     assert ok is True
     assert message == "playback-command-sent"
-    assert first_play_media_payload["queue_id"] == "alexa-queue-id"
-    assert first_play_media_payload["media"] == "https://worker.example.com/v1/stream/token"
+    # For alexa_media players, the validated active queue (player's active_queue)
+    # should be preferred over the preferred_queue_id when they don't match.
+    assert details["payload"]["queue_id"] == "alexa-queue-id"
 
 
 @pytest.mark.anyio

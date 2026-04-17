@@ -488,6 +488,7 @@ class MusicAssistantClient:
         request_id: str,
         home_id: str,
         player_id: str,
+        skip_playback_start: bool = False,
     ) -> dict[str, Any] | None:
         uri = str(item.get("uri") or "").strip()
         item_id = str(item.get("item_id") or item.get("id") or "").strip()
@@ -586,6 +587,8 @@ class MusicAssistantClient:
                             }
                         )
                     )
+                    if skip_playback_start:
+                        return playable
                     playback_started = await self._start_playback_for_playable(
                         playable=playable,
                         payload_queue_id=str(payload.get("queue_id") or "") or None,
@@ -617,6 +620,8 @@ class MusicAssistantClient:
                             }
                         )
                     )
+                    if skip_playback_start:
+                        return playable
                     playback_started = await self._start_playback_for_playable(
                         playable=playable,
                         payload_queue_id=str(payload.get("queue_id") or "") or None,
@@ -687,6 +692,7 @@ class MusicAssistantClient:
         request_id: str,
         home_id: str,
         player_id: str,
+        skip_playback_start: bool = False,
     ) -> dict[str, Any] | None:
         normalized_query = self._normalize_query(query)
         if not normalized_query:
@@ -769,6 +775,7 @@ class MusicAssistantClient:
                         request_id=request_id,
                         home_id=home_id,
                         player_id=player_id,
+                        skip_playback_start=skip_playback_start,
                     )
                     if playable:
                         return playable
@@ -797,6 +804,7 @@ class MusicAssistantClient:
                 request_id=request_id,
                 home_id=home_id,
                 player_id=player_id,
+                skip_playback_start=skip_playback_start,
             )
             if playable:
                 return playable
@@ -902,12 +910,14 @@ class MusicAssistantClient:
 
     async def _resolve_default_queue_id(self) -> str | None:
         players = await self.get_players()
+        already_tried: set[str] = set()
         for player in players:
             player_id = str(player.get("player_id") or "")
             candidates = [
                 ("active_queue", player.get("active_queue")),
                 ("active_source", player.get("active_source")),
                 ("queue_id", player.get("queue_id")),
+                ("player_id", player_id),
             ]
             for candidate_source, candidate in candidates:
                 if not candidate:
@@ -915,6 +925,9 @@ class MusicAssistantClient:
                 queue_id = str(candidate).strip()
                 if not queue_id:
                     continue
+                if queue_id in already_tried:
+                    continue
+                already_tried.add(queue_id)
                 if self._is_stale_numeric_queue_id(queue_id):
                     logger.warning(
                         "MA queue candidate rejected queue_id=%s player_id=%s candidate_source=%s reason=stale_numeric_queue_id",
@@ -1151,6 +1164,7 @@ class MusicAssistantClient:
         request_id: str = "",
         home_id: str = "",
         player_id: str = "",
+        skip_playback_start: bool = False,
     ) -> dict[str, Any]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="resolve_play_request.request")
         normalized_query = self._normalize_query(query)
@@ -1198,6 +1212,7 @@ class MusicAssistantClient:
                 request_id=request_id,
                 home_id=home_id,
                 player_id=player_id,
+                skip_playback_start=skip_playback_start,
             )
             if playable:
                 logger.warning(
@@ -1258,6 +1273,55 @@ class MusicAssistantClient:
         if playable:
             logger.info(json.dumps({**log_ctx, "result": "fallback_next_playable", "queue_id": playable.get("queue_id"), "queue_item_id": playable.get("queue_item_id") }))
             return playable
+
+        # Last resort: extract now-playing info from any active player, search
+        # the MA library for that content, and enqueue it.
+        try:
+            fallback_players = await self.get_players()
+            for fp in fallback_players:
+                fp_state = str(fp.get("state") or "").lower()
+                if fp_state not in ("playing", "paused"):
+                    continue
+                current_media = fp.get("current_media") or fp.get("current_item") or {}
+                if isinstance(current_media, dict):
+                    title = str(current_media.get("title") or current_media.get("name") or "")
+                    artist = str(current_media.get("artist") or "")
+                else:
+                    title = ""
+                    artist = ""
+                if not title:
+                    continue
+                fallback_query = f"{title} {artist}".strip()
+                logger.warning(json.dumps({
+                    **log_ctx,
+                    "phase": "now_playing_fallback",
+                    "player_id": str(fp.get("player_id") or ""),
+                    "player_name": str(fp.get("name") or ""),
+                    "fallback_query": fallback_query,
+                }))
+                playable = await self._resolve_query_play_request(
+                    query=fallback_query,
+                    queue_id=requested_queue_id,
+                    intent_name=intent_name,
+                    request_id=request_id,
+                    home_id=home_id,
+                    player_id=player_id,
+                    skip_playback_start=True,
+                )
+                if playable:
+                    logger.warning(json.dumps({
+                        **log_ctx,
+                        "result": "now_playing_fallback_resolved",
+                        "queue_id": playable.get("queue_id"),
+                        "queue_item_id": playable.get("queue_item_id"),
+                    }))
+                    return playable
+        except Exception as fallback_exc:
+            logger.warning(json.dumps({
+                **log_ctx,
+                "phase": "now_playing_fallback_failed",
+                "error": str(fallback_exc),
+            }))
 
         logger.warning(json.dumps({**log_ctx, "result": "no_playable_item", "reason": "queue_empty"}))
         raise MusicAssistantError(json.dumps({"code": "queue_empty", "message": "No playable queue item available."}))

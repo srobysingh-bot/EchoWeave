@@ -63,6 +63,7 @@ async def execute_edge_command(
                 request_id=request_id,
                 home_id=home_id,
                 player_id=player_id,
+                skip_playback_start=True,
             )
             logger.info(
                 "prepare_play_primary_resolve_ok request_id=%s home_id=%s player_id=%s queue_id=%s queue_item_id=%s origin_stream_path=%s",
@@ -96,6 +97,7 @@ async def execute_edge_command(
                     request_id=request_id,
                     home_id=home_id,
                     player_id=player_id,
+                    skip_playback_start=True,
                 )
                 logger.info(
                     "prepare_play_fallback_resolve_ok request_id=%s home_id=%s player_id=%s queue_id=%s queue_item_id=%s origin_stream_path=%s",
