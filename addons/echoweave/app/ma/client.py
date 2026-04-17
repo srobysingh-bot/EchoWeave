@@ -209,9 +209,13 @@ class MusicAssistantClient:
                 return result
             except MusicAssistantError as exc:
                 last_error = exc
-                # Retry only for 404 on alternate command names.
-                if "MA API error: 404" in str(exc) and idx < len(commands) - 1:
-                    logger.warning("MA API 404 for command=%s; retrying alternate command", command)
+                # Retry on 404 (wrong command name) or 500 (command may differ
+                # between MA versions) when there are more commands to try.
+                err_str = str(exc)
+                if idx < len(commands) - 1 and (
+                    "MA API error: 404" in err_str or "MA API error: 500" in err_str
+                ):
+                    logger.warning("MA API error for command=%s; retrying alternate command", command)
                     continue
                 raise
         if last_error:
@@ -259,7 +263,8 @@ class MusicAssistantClient:
         if not isinstance(data, dict):
             return []
 
-        keys = [media_type, "items", "result", "results"]
+        singular = self._singular_media_type(media_type)
+        keys = [media_type, singular, "items", "result", "results"]
         for key in keys:
             value = data.get(key)
             if isinstance(value, list):
@@ -267,15 +272,33 @@ class MusicAssistantClient:
 
         nested = data.get("result")
         if isinstance(nested, dict):
-            value = nested.get(media_type)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
+            for key in (media_type, singular):
+                value = nested.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
 
         return []
 
+    @staticmethod
+    def _singular_media_type(media_type: str) -> str:
+        """Convert plural media type to singular (e.g. 'tracks' -> 'track')."""
+        mapping = {"tracks": "track", "artists": "artist", "albums": "album", "playlists": "playlist"}
+        return mapping.get(media_type, media_type)
+
     async def _search_media(self, query: str, media_type: str, *, limit: int = 10) -> list[dict[str, Any]]:
         commands = ["music/search", "music.search"]
+        singular = self._singular_media_type(media_type)
         payload_candidates: list[dict[str, Any]] = [
+            {
+                "search_query": query,
+                "media_types": [singular],
+                "limit": limit,
+            },
+            {
+                "search_query": query,
+                "media_types": [media_type],
+                "limit": limit,
+            },
             {
                 "search": query,
                 "media_types": [media_type],

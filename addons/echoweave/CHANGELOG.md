@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.60] - 2026-04-17
+
+### Fixed
+
+- Fix MA `music/search` 500 errors: use `search_query` parameter key and singular media types (`track`, `artist`, `album`, `playlist`) matching MA 2.x API.
+- Retry alternate command (`music.search`) on HTTP 500 in addition to 404.
+- Check both singular and plural media type keys when extracting search results.
+
 ## [0.3.59] - 2026-04-17
 
 ### Changed
