@@ -126,20 +126,32 @@ async def execute_edge_command(
         # Cache the stream URL to avoid re-fetching during stream request
         queue_id_val = resolved.get("queue_id")
         queue_item_id_val = resolved.get("queue_item_id")
+        uri_val = str(resolved.get("uri") or "")
         if queue_id_val and queue_item_id_val:
-            # Build stream context to get the actual source URL without blocking stream endpoint
-            try:
-                stream_ctx = await ma_client.build_stream_context(
-                    queue_id=queue_id_val,
-                    queue_item_id=queue_item_id_val,
+            if uri_val and "://" in uri_val:
+                # Synthetic item from search — store URI mapping for later
+                # stream resolution.  Skip build_stream_context which would
+                # make 3+ failing HTTP calls to MA and waste 3-6 seconds.
+                from app.edge.stream_router import cache_uri_mapping
+                cache_uri_mapping(queue_id_val, queue_item_id_val, uri_val)
+                logger.info(
+                    "prepare_play_cached_uri_mapping queue_id=%s queue_item_id=%s uri=%s",
+                    queue_id_val, queue_item_id_val, uri_val,
                 )
-                source_url = stream_ctx.get("source_url")
-                if source_url:
-                    cache_stream_url(queue_id_val, queue_item_id_val, source_url)
-                    logger.debug(f"Cached stream URL for {queue_id_val}/{queue_item_id_val}")
-            except Exception as cache_exc:
-                logger.warning(f"Failed to cache stream URL: {cache_exc}")
-                # Don't fail prepare_play if caching fails
+            else:
+                # Real queue item — try to pre-cache the actual stream URL.
+                try:
+                    stream_ctx = await ma_client.build_stream_context(
+                        queue_id=queue_id_val,
+                        queue_item_id=queue_item_id_val,
+                    )
+                    source_url = stream_ctx.get("source_url")
+                    if source_url:
+                        cache_stream_url(queue_id_val, queue_item_id_val, source_url)
+                        logger.debug(f"Cached stream URL for {queue_id_val}/{queue_item_id_val}")
+                except Exception as cache_exc:
+                    logger.warning(f"Failed to cache stream URL: {cache_exc}")
+                    # Don't fail prepare_play if caching fails
         
         return resolved
 

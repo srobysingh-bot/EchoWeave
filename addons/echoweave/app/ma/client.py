@@ -1511,9 +1511,22 @@ class MusicAssistantClient:
 
         # Fallback: if item_id looks like a URI (synthetic item from search),
         # try to resolve via music/item_by_uri to get stream details.
-        if "://" in item_id:
+        uri_to_resolve = item_id if "://" in item_id else None
+
+        # If item_id is not a URI (numeric ID from search), check the URI
+        # mapping cache for the original provider URI.
+        if not uri_to_resolve:
+            from app.edge.stream_router import get_cached_uri_mapping
+            uri_to_resolve = get_cached_uri_mapping(queue_id, item_id)
+            if uri_to_resolve:
+                logger.info(
+                    "get_stream_url: found cached URI mapping for %s/%s → %s",
+                    queue_id, item_id, uri_to_resolve,
+                )
+
+        if uri_to_resolve:
             try:
-                media_item = await self._post_command("music/item_by_uri", uri=item_id)
+                media_item = await self._post_command("music/item_by_uri", uri=uri_to_resolve)
                 if isinstance(media_item, dict):
                     # Check for stream details
                     sd = media_item.get("streamdetails") or {}
@@ -1524,7 +1537,27 @@ class MusicAssistantClient:
                     if resolved_uri:
                         return resolved_uri
             except MusicAssistantError:
-                logger.warning("URI-based stream resolution failed for %s", item_id)
+                logger.warning("URI-based stream resolution failed for %s (uri=%s)", item_id, uri_to_resolve)
+
+            # Last resort: try enqueuing with option=add to populate the queue
+            # without starting playback, then retry queue item lookup.
+            try:
+                real_queue_id = await self._resolve_default_queue_id()
+                if real_queue_id:
+                    await self._post_command_with_fallback(
+                        ["player_queues/play_media"],
+                        queue_id=real_queue_id,
+                        media=uri_to_resolve,
+                        option="add",
+                    )
+                    # Item should now be in the queue — retry lookup
+                    new_item = await self.get_queue_item(real_queue_id, item_id)
+                    if new_item and new_item.streamdetails and new_item.streamdetails.url:
+                        return new_item.streamdetails.url
+                    if new_item and new_item.uri:
+                        return new_item.uri
+            except MusicAssistantError:
+                logger.warning("Enqueue-add fallback failed for %s (uri=%s)", item_id, uri_to_resolve)
 
         return None
 

@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.63] - 2026-04-17
+
+### Fixed
+
+- Eliminate 3-6 second pre-caching delay in `prepare_play`: synthetic items (with provider URI) now store a lightweight URI mapping instead of calling `build_stream_context` which made 3+ failing HTTP calls to MA.
+- Fix stream resolution for synthetic items: `get_stream_url` now checks URI mapping cache when `queue_item_id` is a numeric ID (not a URI), enabling the `music/item_by_uri` fallback.
+- Add enqueue-with-add-option last-resort in `get_stream_url`: tries `player_queues/play_media` with `option=add` to populate queue without starting playback, then retries stream lookup.
+- Add URI mapping fallback in stream router: when `build_stream_context` fails for synthetic items, checks URI mapping cache and retries via `get_stream_url` with URI-aware resolution.
+
 ## [0.3.62] - 2026-04-17
 
 ### Fixed

@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 _stream_url_cache: dict[str, tuple[str, float]] = {}
 _STREAM_CACHE_TTL = 300  # 5 minutes
 
+# URI mapping cache: {queue_id}:{queue_item_id} -> provider URI
+# Stores the original MA URI (e.g. apple_music://track/123) for synthetic items
+# so that stream resolution can use music/item_by_uri as a fallback.
+_uri_mapping_cache: dict[str, str] = {}
+
 _ALEXA_SUPPORTED_CONTENT_TYPES = (
     "audio/mpeg",
     "audio/mp3",
@@ -137,6 +142,18 @@ def cache_stream_url(queue_id: str, queue_item_id: str, source_url: str) -> None
     _stream_url_cache[cache_key] = (source_url, time.time())
     logger.debug(f"Stream URL cached for {queue_id}/{queue_item_id}")
 
+
+def cache_uri_mapping(queue_id: str, queue_item_id: str, uri: str) -> None:
+    """Store the original provider URI for a synthetic queue item."""
+    cache_key = f"{queue_id}:{queue_item_id}"
+    _uri_mapping_cache[cache_key] = uri
+    logger.debug(f"URI mapping cached for {queue_id}/{queue_item_id}")
+
+
+def get_cached_uri_mapping(queue_id: str, queue_item_id: str) -> Optional[str]:
+    """Retrieve the original provider URI for a synthetic queue item."""
+    return _uri_mapping_cache.get(f"{queue_id}:{queue_item_id}")
+
 router = APIRouter(prefix="/edge", tags=["edge"])
 
 
@@ -248,7 +265,40 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
                 "queue_item_id": queue_item_id,
                 "error": str(e),
             }))
-            raise HTTPException(status_code=502, detail="Stream resolution failed")
+
+    if not origin_source_url:
+        # Final fallback: check URI mapping for synthetic items and
+        # try to resolve via get_stream_url which now has URI-aware
+        # resolution logic (music/item_by_uri + enqueue-add).
+        cached_uri = get_cached_uri_mapping(queue_id, queue_item_id)
+        if cached_uri:
+            logger.info(json.dumps({
+                "event": "edge_stream_uri_mapping_fallback",
+                "request_id": request_id,
+                "queue_id": queue_id,
+                "queue_item_id": queue_item_id,
+                "cached_uri": cached_uri,
+            }))
+            try:
+                origin_source_url = await ma_client.get_stream_url(queue_id, queue_item_id)
+                resolve_elapsed = time.perf_counter() - resolve_start
+                if origin_source_url:
+                    cache_stream_url(queue_id, queue_item_id, origin_source_url)
+                    logger.info(json.dumps({
+                        "event": "edge_stream_uri_fallback_resolved",
+                        "request_id": request_id,
+                        "queue_id": queue_id,
+                        "queue_item_id": queue_item_id,
+                        "lookup_ms": round(resolve_elapsed * 1000, 1),
+                    }))
+            except Exception as e2:
+                logger.warning(json.dumps({
+                    "event": "edge_stream_uri_fallback_failed",
+                    "request_id": request_id,
+                    "queue_id": queue_id,
+                    "queue_item_id": queue_item_id,
+                    "error": str(e2),
+                }))
     else:
         logger.info(json.dumps({
             "event": "edge_stream_lookup_done",
