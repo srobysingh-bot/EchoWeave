@@ -317,7 +317,8 @@ describe("edge stream target selection and signing", () => {
 
     const call = fetchCalls[0];
     // Must use origin_base_url + origin_stream_path, NOT the private MA source_url
-    expect(call.url).toContain("origin.example.com");
+    // Worker now prefers live origin_base_url from resolve_stream response over DB value
+    expect(call.url).toContain("test-tunnel.trycloudflare.com");
     expect(call.url).toContain("/edge/stream/q1/i1");
     // Must NOT use the private MA URL
     expect(call.url).not.toContain("192.168.1.100");

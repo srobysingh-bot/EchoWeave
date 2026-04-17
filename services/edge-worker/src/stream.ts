@@ -1,4 +1,4 @@
-import { getOriginBaseUrl, getRecordedStreamToken } from "./db";
+import { getOriginBaseUrl, getRecordedStreamToken, updateOriginBaseUrl } from "./db";
 import { signEdgeRequest, verifySignedStreamToken } from "./security";
 import { Env } from "./types";
 
@@ -175,7 +175,7 @@ export async function handleStreamRequestWithContext(
     return new Response("stream resolve failed", { status: 502 });
   }
 
-  const resolvePayload = (await resolveResp.json()) as { source_url?: string; origin_stream_path?: string };
+  const resolvePayload = (await resolveResp.json()) as { source_url?: string; origin_stream_path?: string; origin_base_url?: string };
   const resolveMs = Date.now() - resolveStart;
 
   console.info(JSON.stringify({
@@ -184,6 +184,7 @@ export async function handleStreamRequestWithContext(
     token_id: claims.token_id,
     has_source_url: !!resolvePayload.source_url,
     has_origin_stream_path: !!resolvePayload.origin_stream_path,
+    live_origin_base_url: resolvePayload.origin_base_url ?? "",
     resolve_ms: resolveMs,
   }));
 
@@ -212,7 +213,27 @@ export async function handleStreamRequestWithContext(
   }
 
   // --- Look up reachable add-on origin base URL ---
-  const originBaseUrl = await getOriginBaseUrl(env.ECHOWEAVE_DB, claims.home_id, claims.tenant_id);
+  // Prefer live URL from addon's resolve_stream (via WS) over potentially stale DB value
+  const liveOriginBaseUrl = (resolvePayload.origin_base_url ?? "").trim();
+  const dbOriginBaseUrl = await getOriginBaseUrl(env.ECHOWEAVE_DB, claims.home_id, claims.tenant_id);
+  const originBaseUrl = liveOriginBaseUrl || dbOriginBaseUrl;
+
+  // Auto-update D1 if the addon reports a different tunnel URL
+  if (liveOriginBaseUrl && dbOriginBaseUrl && liveOriginBaseUrl !== dbOriginBaseUrl) {
+    try {
+      await updateOriginBaseUrl(env.ECHOWEAVE_DB, claims.home_id, claims.tenant_id, liveOriginBaseUrl);
+      console.info(JSON.stringify({
+        event: "origin_base_url_auto_updated",
+        request_id: requestId,
+        home_id: claims.home_id,
+        old_url: dbOriginBaseUrl,
+        new_url: liveOriginBaseUrl,
+      }));
+    } catch {
+      // Non-critical, continue with live URL
+    }
+  }
+
   if (!originBaseUrl) {
     console.warn(JSON.stringify({
       event: "stream_proxy_failed",
@@ -370,6 +391,9 @@ export async function handleStreamRequestWithContext(
   }));
 
   if (!upstream.ok && upstream.status !== 206) {
+    const tunnelDiag = upstream.status === 530
+      ? "tunnel_unreachable_530: Cloudflare tunnel is down or URL is stale. Check tunnel_base_url in addon config."
+      : "";
     console.warn(JSON.stringify({
       event: "worker_stream_fetch_failed",
       request_id: requestId,
@@ -380,6 +404,10 @@ export async function handleStreamRequestWithContext(
       reason: "bad_status",
       upstream_status: upstream.status,
       content_type: upstream.headers.get("content-type") ?? "",
+      upstream_url: upstreamUrl.toString(),
+      live_origin_base_url: liveOriginBaseUrl,
+      db_origin_base_url: dbOriginBaseUrl ?? "",
+      tunnel_diagnostic: tunnelDiag,
     }));
     console.warn(
       JSON.stringify({

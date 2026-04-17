@@ -321,6 +321,13 @@ export class MockD1Database {
     if (sql.startsWith("update playback_sessions set stream_token_id = ?, updated_at = current_timestamp where id = ?")) {
       return;
     }
+
+    if (sql.startsWith("update homes set origin_base_url = ? where id = ? and tenant_id = ?")) {
+      const [originBaseUrl, homeId, tenantId] = args as [string, string, string];
+      const home = this.homes.get(homeId);
+      if (home && home.tenant_id === tenantId) home.origin_base_url = originBaseUrl;
+      return;
+    }
   }
 
   private normalize(sql: string): string {
@@ -356,6 +363,7 @@ export function createEnv(overrides?: Partial<Env>): Env {
                 JSON.stringify({
                   origin_stream_path: "/edge/stream/q1/i1",
                   source_url: "http://192.168.1.100:8095/media/track/123",
+                  origin_base_url: "https://test-tunnel.trycloudflare.com",
                 }),
                 { status: 200, headers: { "content-type": "application/json" } },
               );

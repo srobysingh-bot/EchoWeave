@@ -10,8 +10,21 @@ import httpx
 
 from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
-from app.edge.stream_router import cache_stream_url, get_cached_stream_url
+from app.edge.stream_router import cache_stream_url, cache_uri_mapping, get_cached_stream_url, get_cached_uri_mapping
 from app.ma.client import MusicAssistantClient
+
+
+def _get_origin_base_url() -> str:
+    """Read current origin_base_url from settings via the service registry."""
+    try:
+        from app.core.service_registry import registry
+        config_svc = registry.get_optional("config_service")
+        if config_svc:
+            s = config_svc.settings
+            return str(s.tunnel_base_url or s.public_base_url or s.stream_base_url or "")
+    except Exception:
+        pass
+    return ""
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +145,6 @@ async def execute_edge_command(
                 # Synthetic item from search — store URI mapping for later
                 # stream resolution.  Skip build_stream_context which would
                 # make 3+ failing HTTP calls to MA and waste 3-6 seconds.
-                from app.edge.stream_router import cache_uri_mapping
                 cache_uri_mapping(queue_id_val, queue_item_id_val, uri_val)
                 logger.info(
                     "prepare_play_cached_uri_mapping queue_id=%s queue_item_id=%s uri=%s",
@@ -209,6 +221,34 @@ async def execute_edge_command(
                     }
                 )
             )
+            if not source_url and queue_id_val and queue_item_id_val:
+                # Try resolving via URI mapping cache (for synthetic items from search)
+                cached_uri = get_cached_uri_mapping(queue_id_val, queue_item_id_val)
+                if cached_uri:
+                    try:
+                        resolved_url = await ma_client.get_stream_url(queue_id_val, queue_item_id_val)
+                        if resolved_url:
+                            source_url = resolved_url
+                            cache_stream_url(queue_id_val, queue_item_id_val, source_url)
+                            logger.info(
+                                json.dumps({
+                                    "event": "resolve_stream_uri_mapping_resolved",
+                                    "request_id": request_id,
+                                    "queue_id": queue_id_val,
+                                    "queue_item_id": queue_item_id_val,
+                                })
+                            )
+                    except Exception as uri_exc:
+                        logger.warning(
+                            json.dumps({
+                                "event": "resolve_stream_uri_mapping_failed",
+                                "request_id": request_id,
+                                "queue_id": queue_id_val,
+                                "queue_item_id": queue_item_id_val,
+                                "error": str(uri_exc),
+                            })
+                        )
+
             if not source_url:
                 logger.warning(
                     json.dumps(
@@ -229,6 +269,7 @@ async def execute_edge_command(
                 "queue_item_id": queue_item_id_val,
                 "origin_stream_path": session_origin_stream_path,
                 "source_url": source_url,
+                "origin_base_url": _get_origin_base_url(),
                 "content_type": "audio/mpeg",
             }
 
@@ -324,6 +365,7 @@ async def execute_edge_command(
             "queue_item_id": queue_item_id_val,
             "origin_stream_path": stream_ctx.get("origin_stream_path", ""),
             "source_url": source_url,
+            "origin_base_url": _get_origin_base_url(),
             "content_type": stream_ctx.get("content_type", "audio/mpeg"),
         }
 

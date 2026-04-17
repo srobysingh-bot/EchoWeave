@@ -5,6 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.64] - 2026-04-17
+
+### Fixed
+
+- Fix stream 530/502 error caused by stale Cloudflare Tunnel URL: addon now reports its current `origin_base_url` in every `resolve_stream` response via WebSocket.
+- Worker dynamically uses the live tunnel URL from the addon instead of the potentially stale D1 value, and auto-updates D1 when the URLs differ.
+- Resolve stream source URL from URI mapping cache during `resolve_stream` command for synthetic items (previously left empty, causing stream endpoint to re-resolve from scratch).
+- Add diagnostic logging for 530 tunnel errors to clearly identify stale tunnel URLs.
+
 ## [0.3.63] - 2026-04-17
 
 ### Fixed

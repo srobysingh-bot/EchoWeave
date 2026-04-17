@@ -343,3 +343,15 @@ export async function getOriginBaseUrl(
 
   return row?.origin_base_url || null;
 }
+
+export async function updateOriginBaseUrl(
+  db: D1Database,
+  homeId: string,
+  tenantId: string,
+  originBaseUrl: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE homes SET origin_base_url = ? WHERE id = ? AND tenant_id = ?")
+    .bind(originBaseUrl, homeId, tenantId)
+    .run();
+}
