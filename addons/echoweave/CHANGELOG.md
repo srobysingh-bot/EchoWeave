@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.61] - 2026-04-17
+
+### Fixed
+
+- Fix `player_queues/play_media` payload: use `media=uri` parameter matching MA 2.x API (was incorrectly sending `media_type` + `uri`/`item_id`).
+- Auto-discover `queue_id` in query search path when none is provided — resolves empty `queue_id` causing enqueue to fail.
+- Add `players/play_media` as additional fallback command for enqueue.
+
 ## [0.3.60] - 2026-04-17
 
 ### Fixed

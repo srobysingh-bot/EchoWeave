@@ -559,15 +559,25 @@ class MusicAssistantClient:
         )
 
         payload_candidates: list[dict[str, Any]] = []
+        # MA 2.x play_media expects: queue_id + media (uri string or list).
+        # We try the URI first (preferred), then item_id-based URIs.
         if queue_id:
             if uri:
-                payload_candidates.append({"queue_id": queue_id, "media_type": media_type, "uri": uri})
+                payload_candidates.append({"queue_id": queue_id, "media": uri})
+                payload_candidates.append({"queue_id": queue_id, "media": [uri]})
             if item_id:
-                payload_candidates.append({"queue_id": queue_id, "media_type": media_type, "item_id": item_id})
+                # Construct a library URI from media_type + item_id
+                singular = self._singular_media_type(media_type)
+                lib_uri = f"library://{singular}/{item_id}"
+                payload_candidates.append({"queue_id": queue_id, "media": lib_uri})
+                payload_candidates.append({"queue_id": queue_id, "media": [lib_uri]})
+        # Fallback: try without queue_id (some MA versions auto-select)
         if uri:
-            payload_candidates.append({"media_type": media_type, "uri": uri})
+            payload_candidates.append({"media": uri})
         if item_id:
-            payload_candidates.append({"media_type": media_type, "item_id": item_id})
+            singular = self._singular_media_type(media_type)
+            lib_uri = f"library://{singular}/{item_id}"
+            payload_candidates.append({"media": lib_uri})
 
         playback_start_failed_observed = False
         for attempt, payload in enumerate(payload_candidates, 1):
@@ -585,7 +595,7 @@ class MusicAssistantClient:
                     )
                 )
                 response = await self._post_command_with_fallback(
-                    ["player_queues/play_media", "playerqueues/play_media"],
+                    ["player_queues/play_media", "playerqueues/play_media", "players/play_media"],
                     **payload,
                 )
                 logger.warning(
@@ -731,6 +741,22 @@ class MusicAssistantClient:
         if not normalized_query:
             return None
 
+        # Ensure we have a queue_id — auto-discover if not provided.
+        effective_queue_id = queue_id
+        if not effective_queue_id:
+            effective_queue_id = await self._resolve_default_queue_id()
+            if effective_queue_id:
+                logger.info(
+                    "resolve_query_play_request: auto-discovered queue_id=%s for query=%s",
+                    effective_queue_id,
+                    normalized_query,
+                )
+            else:
+                logger.warning(
+                    "resolve_query_play_request: no queue_id available for query=%s",
+                    normalized_query,
+                )
+
         search_order = ["tracks", "artists", "albums", "playlists"]
         for media_type in search_order:
             results = await self._search_media(normalized_query, media_type)
@@ -804,7 +830,7 @@ class MusicAssistantClient:
                     playable = await self._try_enqueue_search_result(
                         top_tracks[0],
                         media_type="tracks",
-                        queue_id=queue_id,
+                        queue_id=effective_queue_id,
                         request_id=request_id,
                         home_id=home_id,
                         player_id=player_id,
@@ -833,7 +859,7 @@ class MusicAssistantClient:
             playable = await self._try_enqueue_search_result(
                 results[0],
                 media_type=media_type,
-                queue_id=queue_id,
+                queue_id=effective_queue_id,
                 request_id=request_id,
                 home_id=home_id,
                 player_id=player_id,
