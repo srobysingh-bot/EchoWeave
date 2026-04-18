@@ -10,7 +10,7 @@ import httpx
 
 from app.core.exceptions import MusicAssistantError
 from app.edge.models import PreparePlayPayload
-from app.edge.stream_router import cache_stream_url, cache_uri_mapping, get_cached_stream_url, get_cached_uri_mapping
+from app.edge.stream_router import cache_uri_mapping, get_cached_stream_url, get_cached_uri_mapping
 from app.ma.client import MusicAssistantClient
 
 
@@ -135,46 +135,23 @@ async def execute_edge_command(
             resolved.get("queue_item_id"),
             resolved.get("origin_stream_path"),
         )
-        
-        # Cache the stream URL to avoid re-fetching during stream request
+
+        # Store URI mapping for stream_router fallback resolution.
+        # We do NOT attempt to pre-cache the stream URL here because MA's
+        # play_index is still running in the background — streamdetails are not
+        # ready yet and calling build_stream_context would just add more latency
+        # (and likely fail), pushing us over the 8-second DO timeout.
         queue_id_val = resolved.get("queue_id")
         queue_item_id_val = resolved.get("queue_item_id")
         uri_val = str(resolved.get("uri") or "")
         if queue_id_val and queue_item_id_val:
-            # Always try to pre-cache the actual stream URL first.
-            # Now that _try_enqueue_search_result enqueues with option="add",
-            # even synthetic items should be in MA's queue and resolvable.
-            _precache_ok = False
-            try:
-                stream_ctx = await ma_client.build_stream_context(
-                    queue_id=queue_id_val,
-                    queue_item_id=queue_item_id_val,
-                )
-                source_url = stream_ctx.get("source_url")
-                # Only cache real HTTP URLs — never cache provider URIs.
-                if source_url and source_url.startswith(("http://", "https://")):
-                    cache_stream_url(queue_id_val, queue_item_id_val, source_url)
-                    _precache_ok = True
-                    logger.info(
-                        "prepare_play_precached_stream_url queue_id=%s queue_item_id=%s",
-                        queue_id_val, queue_item_id_val,
-                    )
-                elif source_url:
-                    logger.warning(
-                        "prepare_play skipped caching non-HTTP source_url=%s queue_id=%s queue_item_id=%s",
-                        source_url, queue_id_val, queue_item_id_val,
-                    )
-            except Exception as cache_exc:
-                logger.warning(f"Failed to pre-cache stream URL: {cache_exc}")
-
-            # Fallback: store URI mapping for later stream resolution
-            if not _precache_ok and uri_val and "://" in uri_val and not uri_val.startswith(("http://", "https://")):
+            if uri_val and "://" in uri_val and not uri_val.startswith(("http://", "https://")):
                 cache_uri_mapping(queue_id_val, queue_item_id_val, uri_val)
                 logger.info(
                     "prepare_play_cached_uri_mapping queue_id=%s queue_item_id=%s uri=%s",
                     queue_id_val, queue_item_id_val, uri_val,
                 )
-        
+
         return resolved
 
     if command == "resolve_stream":

@@ -474,49 +474,76 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             "origin_url": origin_source_url,
         }))
 
-        # ── Fallback: full get_stream_url re-resolution ──────────────
+        # ── Backoff retry: MA's play_index runs in the background ────
+        # When prepare_play fires option="play" and returns immediately, MA's
+        # play_index is still resolving streamdetails (JioSaavn CDN URLs).
+        # This takes 5-15 seconds.  We wait with exponential backoff and retry
+        # the stream URL until MA is ready (up to ~16 seconds total).
         if upstream is None and transcode_fallback is None:
-            try:
-                _fresh_url = await ma_client.get_stream_url(queue_id, queue_item_id)
-                if _fresh_url and _fresh_url.startswith(("http://", "https://")) and _fresh_url != origin_source_url:
-                    logger.info(json.dumps({
-                        "event": "edge_stream_retry_new_url",
+            _RETRY_DELAYS = [2.0, 3.0, 4.0, 5.0, 5.0]  # ~19s total wait
+            for _attempt, _delay in enumerate(_RETRY_DELAYS, start=1):
+                await asyncio.sleep(_delay)
+                try:
+                    _fresh_url = await ma_client.get_stream_url(queue_id, queue_item_id)
+                except Exception as _gsu_exc:
+                    logger.warning(json.dumps({
+                        "event": "edge_stream_backoff_get_stream_url_failed",
                         "request_id": request_id,
                         "queue_id": queue_id,
                         "queue_item_id": queue_item_id,
-                        "old_url": origin_source_url,
-                        "new_url": _fresh_url,
+                        "attempt": _attempt,
+                        "error": str(_gsu_exc),
                     }))
-                    # Build fresh candidates and retry once
-                    _retry_candidates = _build_alexa_source_url_candidates(_fresh_url) if is_alexa_profile else [(_fresh_url, "retry_origin")]
-                    for _retry_url, _retry_mode in _retry_candidates:
-                        try:
-                            _retry_req = client.build_request("GET", _retry_url, headers=headers)
-                            _retry_resp = await client.send(_retry_req, stream=True)
-                        except Exception:
-                            continue
-                        if _retry_resp.status_code in (200, 206):
-                            _retry_ct = _retry_resp.headers.get("content-type", "")
-                            if not is_alexa_profile or _is_alexa_supported_content_type(_retry_ct):
-                                upstream = _retry_resp
-                                selected_source_url = _retry_url
-                                selected_mode = f"retry_{_retry_mode}"
-                                first_byte_elapsed = 0.0
-                                cache_stream_url(queue_id, queue_item_id, _fresh_url)
-                                break
-                            if transcode_fallback is None:
-                                transcode_fallback = (_retry_url, f"retry_{_retry_mode}", _retry_ct)
-                            await _retry_resp.aclose()
-                        else:
-                            await _retry_resp.aclose()
-            except Exception as _retry_exc:
-                logger.warning(json.dumps({
-                    "event": "edge_stream_retry_failed",
+                    continue
+
+                if not _fresh_url or not _fresh_url.startswith(("http://", "https://")):
+                    logger.info(json.dumps({
+                        "event": "edge_stream_backoff_not_ready",
+                        "request_id": request_id,
+                        "queue_id": queue_id,
+                        "queue_item_id": queue_item_id,
+                        "attempt": _attempt,
+                        "url": _fresh_url,
+                    }))
+                    continue
+
+                logger.info(json.dumps({
+                    "event": "edge_stream_backoff_retry",
                     "request_id": request_id,
                     "queue_id": queue_id,
                     "queue_item_id": queue_item_id,
-                    "error": str(_retry_exc),
+                    "attempt": _attempt,
+                    "new_url": _fresh_url,
                 }))
+                _retry_candidates = (
+                    _build_alexa_source_url_candidates(_fresh_url)
+                    if is_alexa_profile
+                    else [(_fresh_url, "backoff_origin")]
+                )
+                _found = False
+                for _retry_url, _retry_mode in _retry_candidates:
+                    try:
+                        _retry_req = client.build_request("GET", _retry_url, headers=headers)
+                        _retry_resp = await client.send(_retry_req, stream=True)
+                    except Exception:
+                        continue
+                    if _retry_resp.status_code in (200, 206):
+                        _retry_ct = _retry_resp.headers.get("content-type", "")
+                        if not is_alexa_profile or _is_alexa_supported_content_type(_retry_ct):
+                            upstream = _retry_resp
+                            selected_source_url = _retry_url
+                            selected_mode = f"backoff_{_retry_mode}"
+                            first_byte_elapsed = 0.0
+                            cache_stream_url(queue_id, queue_item_id, _fresh_url)
+                            _found = True
+                            break
+                        if transcode_fallback is None:
+                            transcode_fallback = (_retry_url, f"backoff_{_retry_mode}", _retry_ct)
+                        await _retry_resp.aclose()
+                    else:
+                        await _retry_resp.aclose()
+                if _found or upstream is not None:
+                    break
 
     if upstream is None:
         if is_alexa_profile and transcode_fallback is not None:

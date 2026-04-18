@@ -623,42 +623,33 @@ class MusicAssistantClient:
         )
 
         # When skip_playback_start is True (Alexa flow):
-        # Use option="play" so MA calls play_index internally.  play_index:
-        #   1. Sets queue.session_id = random(8)
-        #   2. Calls _load_item which resolves streamdetails (JioSaavn CDN URL etc)
-        #   3. Calls play_media → sets player.current_media with session_id in custom_data
-        #
-        # We wait a few seconds for step 3, then read the real session_id from
-        # current_media.  This is the ONLY way to get a valid stream URL for
-        # tracks served by MA's Alexa/JioSaavn provider — option="add" skips
-        # the streamdetails resolution so MA returns 500 when we try to stream.
+        # Use option="play" so MA calls play_index internally, which resolves
+        # JioSaavn/Alexa provider stream details.  We fire this and return
+        # IMMEDIATELY — no sleep/wait here — so the Durable Object command
+        # returns within the 8-second timeout.  MA runs play_index in the
+        # background; when Alexa fetches the stream a few seconds later the
+        # stream router reads the real session_id from current_media.
         if skip_playback_start:
             effective_uri = uri or f"library://{self._singular_media_type(media_type)}/{item_id}"
-            # Resolve the actual MA player queue ID. The input queue_id may be a logical
-            # EchoWeave identifier (e.g. "queue-staging") that MA does not recognise.
-            # Using the real MA queue ID ensures stream URLs and cache keys are valid.
+            # Resolve the actual MA player queue ID.
             synthetic_queue_id = queue_id or "default"
             try:
                 real_ma_queue_id = await self._resolve_default_queue_id()
                 if real_ma_queue_id:
                     synthetic_queue_id = real_ma_queue_id
                     logger.info(
-                        "ma_skip_enqueue_synthetic_playable: resolved real MA queue_id=%s (was %s)",
+                        "ma_skip_enqueue: resolved real MA queue_id=%s (was %s)",
                         real_ma_queue_id, queue_id,
                     )
             except Exception as _resolve_exc:
                 logger.warning(
-                    "ma_skip_enqueue_synthetic_playable: could not resolve MA queue_id, using %s: %s",
+                    "ma_skip_enqueue: could not resolve MA queue_id, using %s: %s",
                     synthetic_queue_id, _resolve_exc,
                 )
 
-            # Actually enqueue the item so MA can stream it.  Without this,
-            # MA's /stream/{queue_id}/{queue_item_id} returns 404 because the
-            # item was never placed in any player queue.
             synthetic_item_id = item_id or uri
             enqueue_ok = False
             if synthetic_queue_id and synthetic_queue_id != "default":
-                # Build multiple media URI candidates (same set used in the non-skip path)
                 media_candidates: list[str] = []
                 if uri:
                     media_candidates.append(uri)
@@ -669,8 +660,6 @@ class MusicAssistantClient:
                     media_candidates.append(effective_uri)
 
                 for media_candidate in media_candidates:
-                    if enqueue_ok:
-                        break
                     try:
                         await self._post_command_with_fallback(
                             ["player_queues/play_media", "players/play_media"],
@@ -690,17 +679,14 @@ class MusicAssistantClient:
                                 }
                             )
                         )
-                        # Wait for MA's play_index to complete:
-                        # _load_item resolves streamdetails (JioSaavn CDN URL) and
-                        # play_media sets player.current_media with session_id.
-                        # Typically takes 2-6 seconds depending on provider.
-                        await asyncio.sleep(5.0)
-
-                        # Try to get the queue_item_id from current queue item
-                        # (play_index makes it the current item)
+                        enqueue_ok = True
+                        # Invalidate stale session_id cache — MA's play_index
+                        # is now running in background and will set a new session_id.
+                        invalidate_session_cache(synthetic_queue_id)  # module-level function
+                        # Try to identify the queue_item_id MA assigned (fast,
+                        # no waiting — we just read whatever is in the queue now).
                         try:
                             all_items = await self.get_queue_items(synthetic_queue_id)
-                            # Check last item first (most recently enqueued/played)
                             for q_item in reversed(all_items):
                                 q_uri = str(q_item.uri or "").strip()
                                 q_name = str(q_item.name or "").strip().lower()
@@ -712,7 +698,6 @@ class MusicAssistantClient:
                                     or (item_name and q_name and q_name == item_name)
                                 ):
                                     synthetic_item_id = q_item.queue_item_id
-                                    enqueue_ok = True
                                     logger.info(
                                         json.dumps(
                                             {
@@ -726,52 +711,23 @@ class MusicAssistantClient:
                                         )
                                     )
                                     break
-                            if not enqueue_ok and all_items:
-                                # Could not match by URI/name — use last item (just played)
-                                synthetic_item_id = all_items[-1].queue_item_id
-                                enqueue_ok = True
-                                logger.info(
-                                    json.dumps(
-                                        {
-                                            "event": "ma_skip_enqueue_item_fallback_last",
-                                            "request_id": request_id,
-                                            "queue_id": synthetic_queue_id,
-                                            "queue_item_id": synthetic_item_id,
-                                            "total_items": len(all_items),
-                                        }
-                                    )
-                                )
-                        except Exception as _items_exc:
-                            logger.warning(
-                                "ma_skip_enqueue: could not list queue items: %s", _items_exc,
-                            )
-
-                        # Also try to extract the real session_id from current_media
-                        # so the stream URL we return has the correct session_id
-                        # (avoids the 404 that "nosession" gets when session_id is set).
-                        try:
-                            players = await self.get_players()
-                            for _p in players:
-                                _aq = str(
-                                    _p.get("active_queue")
-                                    or _p.get("active_source")
-                                    or _p.get("player_id")
-                                    or ""
-                                )
-                                if _aq == synthetic_queue_id:
-                                    _sid = self._extract_session_id_from_player(_p)
-                                    if _sid:
-                                        _cache_session_id(synthetic_queue_id, _sid)
-                                        logger.info(
-                                            "ma_skip_enqueue: cached session_id=%s queue_id=%s",
-                                            _sid, synthetic_queue_id,
+                            else:
+                                if all_items:
+                                    synthetic_item_id = all_items[-1].queue_item_id
+                                    logger.info(
+                                        json.dumps(
+                                            {
+                                                "event": "ma_skip_enqueue_item_fallback_last",
+                                                "request_id": request_id,
+                                                "queue_id": synthetic_queue_id,
+                                                "queue_item_id": synthetic_item_id,
+                                                "total_items": len(all_items),
+                                            }
                                         )
-                                    break
-                        except Exception as _sid_exc:
-                            logger.debug("ma_skip_enqueue: session_id extract failed: %s", _sid_exc)
-
-                        if enqueue_ok:
-                            break
+                                    )
+                        except Exception as _items_exc:
+                            logger.warning("ma_skip_enqueue: list queue items failed: %s", _items_exc)
+                        break
                     except Exception as _enqueue_exc:
                         logger.warning(
                             json.dumps(

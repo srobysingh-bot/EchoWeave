@@ -5,6 +5,27 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.78] - 2026-04-19
+
+### Fixed
+
+- **Main timeout fix**: Removed `await asyncio.sleep(5.0)` from
+  `_try_enqueue_search_result`. EchoWeave now fires `option="play"` to MA and
+  returns immediately to the Durable Object. This keeps `prepare_play` well
+  under the 8-second DO timeout.
+- **Stream-level backoff retry**: `stream_router.py` now retries the MA stream
+  URL with backoff (2 s, 3 s, 4 s, 5 s, 5 s = up to ~19 s total) when all
+  initial candidates fail (MA's `play_index` / `_load_item` is still resolving
+  the JioSaavn CDN URL in the background). Alexa retries the stream fetch
+  automatically, so the song plays once MA is ready.
+- **Removed slow pre-cache in `command_dispatch.py`**: The `build_stream_context`
+  call after `resolve_play_request` is removed. Streamdetails are not ready
+  immediately after firing `option="play"`, and calling `build_stream_context`
+  here was adding extra latency and pushing the total time over 8 seconds.
+- **Session cache invalidated on enqueue**: `invalidate_session_cache` is now
+  called after `option="play"` so the stream router always reads a fresh
+  `session_id` from MA's `current_media` rather than a stale cached value.
+
 ## [0.3.77] - 2026-04-18
 
 ### Fixed
