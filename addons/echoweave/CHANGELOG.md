@@ -5,7 +5,15 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.3.67] - 2026-04-19
+## [0.3.68] - 2026-04-18
+
+### Fixed
+
+- Fix stream 404 from MA: `_try_enqueue_search_result` with `skip_playback_start=True` now calls `play_media(option="add")` to actually add the item to MA's player queue before returning. Previously, the item was never enqueued in MA, so MA's `/stream/{queue_id}/{queue_item_id}` endpoint returned 404 for every request. After enqueue, the code looks up the real `queue_item_id` that MA assigned (the library item ID is not a valid queue item ID).
+- Fix `command_dispatch.py` `prepare_play`: always attempt `build_stream_context` to pre-cache the resolved stream URL, even for items with provider URIs. Falls back to URI mapping cache only if stream pre-caching fails.
+- Fix `stream_router.py`: when all stream candidate URLs return 404, clear the stale cache, re-resolve a fresh URL from MA via `get_stream_url`, and retry the stream fetch before giving up.
+
+## [0.3.67] - 2026-04-18
 
 ### Fixed
 

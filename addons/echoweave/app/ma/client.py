@@ -558,11 +558,11 @@ class MusicAssistantClient:
             )
         )
 
-        # When skip_playback_start is True (Alexa flow), bypass play_media
-        # entirely.  play_media would try to play on the Echo Dot which always
-        # fails with PlayerCommandFailed / 500.  Instead, construct a synthetic
-        # playable result directly from the search result so the Worker can
-        # build an AudioPlayer.Play directive.
+        # When skip_playback_start is True (Alexa flow), bypass play_media default
+        # (which would try to start playback on the Echo Dot and fail).
+        # Instead, add the item to the MA queue with option="add" (queue-only, no
+        # playback start) so that MA can serve the audio stream for it, then use
+        # the real queue_item_id that MA assigned.
         if skip_playback_start:
             effective_uri = uri or f"library://{self._singular_media_type(media_type)}/{item_id}"
             # Resolve the actual MA player queue ID. The input queue_id may be a logical
@@ -582,7 +582,109 @@ class MusicAssistantClient:
                     "ma_skip_enqueue_synthetic_playable: could not resolve MA queue_id, using %s: %s",
                     synthetic_queue_id, _resolve_exc,
                 )
+
+            # Actually enqueue the item so MA can stream it.  Without this,
+            # MA's /stream/{queue_id}/{queue_item_id} returns 404 because the
+            # item was never placed in any player queue.
             synthetic_item_id = item_id or uri
+            enqueue_ok = False
+            if synthetic_queue_id and synthetic_queue_id != "default":
+                # Build multiple media URI candidates (same set used in the non-skip path)
+                media_candidates: list[str] = []
+                if uri:
+                    media_candidates.append(uri)
+                if item_id:
+                    singular = self._singular_media_type(media_type)
+                    media_candidates.append(f"library://{singular}/{item_id}")
+                if effective_uri and effective_uri not in media_candidates:
+                    media_candidates.append(effective_uri)
+
+                for media_candidate in media_candidates:
+                    if enqueue_ok:
+                        break
+                    try:
+                        await self._post_command_with_fallback(
+                            ["player_queues/play_media", "players/play_media"],
+                            queue_id=synthetic_queue_id,
+                            media=media_candidate,
+                            option="add",
+                        )
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "ma_skip_enqueue_add_ok",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": player_id,
+                                    "queue_id": synthetic_queue_id,
+                                    "media": media_candidate,
+                                }
+                            )
+                        )
+                        # Find the real queue_item_id that MA assigned
+                        try:
+                            all_items = await self.get_queue_items(synthetic_queue_id)
+                            # Check last item first (most recently added)
+                            for q_item in reversed(all_items):
+                                q_uri = str(q_item.uri or "").strip()
+                                q_name = str(q_item.name or "").strip().lower()
+                                item_name = str(item.get("name") or "").strip().lower()
+                                if (
+                                    (q_uri and q_uri == media_candidate)
+                                    or (q_uri and uri and q_uri == uri)
+                                    or (q_item.queue_item_id == item_id)
+                                    or (item_name and q_name and q_name == item_name)
+                                ):
+                                    synthetic_item_id = q_item.queue_item_id
+                                    enqueue_ok = True
+                                    logger.info(
+                                        json.dumps(
+                                            {
+                                                "event": "ma_skip_enqueue_item_matched",
+                                                "request_id": request_id,
+                                                "queue_id": synthetic_queue_id,
+                                                "queue_item_id": synthetic_item_id,
+                                                "matched_uri": q_uri,
+                                                "matched_name": q_name,
+                                            }
+                                        )
+                                    )
+                                    break
+                            if not enqueue_ok and all_items:
+                                # Could not match by URI/name — use last item (just added)
+                                synthetic_item_id = all_items[-1].queue_item_id
+                                enqueue_ok = True
+                                logger.info(
+                                    json.dumps(
+                                        {
+                                            "event": "ma_skip_enqueue_item_fallback_last",
+                                            "request_id": request_id,
+                                            "queue_id": synthetic_queue_id,
+                                            "queue_item_id": synthetic_item_id,
+                                            "total_items": len(all_items),
+                                        }
+                                    )
+                                )
+                        except Exception as _items_exc:
+                            logger.warning(
+                                "ma_skip_enqueue: could not list queue items: %s", _items_exc,
+                            )
+                    except Exception as _enqueue_exc:
+                        logger.warning(
+                            json.dumps(
+                                {
+                                    "event": "ma_skip_enqueue_add_failed",
+                                    "request_id": request_id,
+                                    "home_id": home_id,
+                                    "player_id": player_id,
+                                    "queue_id": synthetic_queue_id,
+                                    "media": media_candidate,
+                                    "error": str(_enqueue_exc),
+                                }
+                            )
+                        )
+                        continue
+
             logger.warning(
                 json.dumps(
                     {
@@ -594,6 +696,7 @@ class MusicAssistantClient:
                         "queue_item_id": synthetic_item_id,
                         "uri": effective_uri,
                         "item_name": str(item.get("name") or ""),
+                        "enqueue_ok": enqueue_ok,
                     }
                 )
             )
