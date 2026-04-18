@@ -246,6 +246,7 @@ async def _request_worker_handoff(
     flow: dict[str, str],
     player_id: str,
     title: str,
+    resolved_ma_queue_id: str | None = None,
 ) -> dict[str, Any]:
     worker_base_url = str(getattr(settings, "worker_base_url", "") or "").rstrip("/")
     connector_id = str(getattr(settings, "connector_id", "") or "")
@@ -258,11 +259,19 @@ async def _request_worker_handoff(
     if not connector_id or not connector_secret or not tenant_id or not home_id:
         raise ValueError("missing-connector-auth")
 
-    queue_id = str(flow.get("session_id") or "").strip()
+    # Use the resolved real MA queue ID when available.  flow["session_id"] holds the
+    # EchoWeave logical queue identifier (e.g. "queue-staging") from the MA stream URL
+    # path, which MA does not recognise.  The real MA player queue ID must be used so
+    # that the stream token and origin_stream_path are valid MA references.
+    queue_id = resolved_ma_queue_id or str(flow.get("session_id") or "").strip()
     queue_item_id = str(flow.get("item_id") or "").strip()
-    origin_stream_path = str(flow.get("path") or "").strip()
-    if not queue_id or not queue_item_id or not origin_stream_path:
+    if not queue_id or not queue_item_id:
         raise ValueError("missing-flow-identifiers")
+
+    # Build an EchoWeave edge stream path using the real MA queue ID.
+    # The MA flow path (flow["path"]) is an internal MA URL format that EchoWeave's
+    # stream handler does not serve; the correct path is /edge/stream/{queue_id}/{item_id}.
+    origin_stream_path = f"/edge/stream/{queue_id}/{queue_item_id}"
 
     endpoint = f"{worker_base_url}/v1/connectors/playback-handoff"
     payload = {
@@ -921,6 +930,38 @@ async def ma_push_url(request: Request) -> JSONResponse:
                 "request_id": request_id,
             }
 
+            # Resolve the real MA player queue ID before the handoff.
+            # flow["session_id"] is the EchoWeave logical queue ID (e.g. "queue-staging")
+            # from the MA stream URL; MA does not recognise it, causing stream 404s.
+            _handoff_ma_queue_id: str | None = None
+            try:
+                _handoff_ma_queue_id = await ma_client._resolve_default_queue_id()
+                if _handoff_ma_queue_id:
+                    logger.info(
+                        json.dumps(
+                            {
+                                "event": "ma_push_url_handoff_queue_resolved",
+                                "request_id": request_id,
+                                "home_id": home_id,
+                                "player_id": resolved_player_id,
+                                "resolved_ma_queue_id": _handoff_ma_queue_id,
+                                "flow_session_id": flow.get("session_id", ""),
+                            }
+                        )
+                    )
+            except Exception as _qid_exc:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ma_push_url_handoff_queue_resolve_failed",
+                            "request_id": request_id,
+                            "home_id": home_id,
+                            "player_id": resolved_player_id,
+                            "error": str(_qid_exc),
+                        }
+                    )
+                )
+
             try:
                 worker_handoff_details = await _request_worker_handoff(
                     request_id=request_id,
@@ -928,6 +969,7 @@ async def ma_push_url(request: Request) -> JSONResponse:
                     flow=flow,
                     player_id=resolved_player_id,
                     title=flow_title,
+                    resolved_ma_queue_id=_handoff_ma_queue_id,
                 )
             except Exception as exc:
                 _PUSH_URL_SESSION_CACHE[coalesce_key] = {

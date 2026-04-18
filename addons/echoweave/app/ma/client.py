@@ -565,7 +565,23 @@ class MusicAssistantClient:
         # build an AudioPlayer.Play directive.
         if skip_playback_start:
             effective_uri = uri or f"library://{self._singular_media_type(media_type)}/{item_id}"
+            # Resolve the actual MA player queue ID. The input queue_id may be a logical
+            # EchoWeave identifier (e.g. "queue-staging") that MA does not recognise.
+            # Using the real MA queue ID ensures stream URLs and cache keys are valid.
             synthetic_queue_id = queue_id or "default"
+            try:
+                real_ma_queue_id = await self._resolve_default_queue_id()
+                if real_ma_queue_id:
+                    synthetic_queue_id = real_ma_queue_id
+                    logger.info(
+                        "ma_skip_enqueue_synthetic_playable: resolved real MA queue_id=%s (was %s)",
+                        real_ma_queue_id, queue_id,
+                    )
+            except Exception as _resolve_exc:
+                logger.warning(
+                    "ma_skip_enqueue_synthetic_playable: could not resolve MA queue_id, using %s: %s",
+                    synthetic_queue_id, _resolve_exc,
+                )
             synthetic_item_id = item_id or uri
             logger.warning(
                 json.dumps(
@@ -1548,30 +1564,63 @@ class MusicAssistantClient:
 
             # Last resort: try enqueuing with option=add to populate the queue
             # without starting playback, then retry queue item lookup.
+            _enqueue_real_queue_id: str | None = None
             try:
-                real_queue_id = await self._resolve_default_queue_id()
-                if real_queue_id:
+                _enqueue_real_queue_id = await self._resolve_default_queue_id()
+                if _enqueue_real_queue_id:
                     await self._post_command_with_fallback(
                         ["player_queues/play_media"],
-                        queue_id=real_queue_id,
+                        queue_id=_enqueue_real_queue_id,
                         media=uri_to_resolve,
                         option="add",
                     )
-                    # Item should now be in the queue — retry lookup
-                    new_item = await self.get_queue_item(real_queue_id, item_id)
-                    if new_item and new_item.streamdetails and new_item.streamdetails.url:
-                        url = str(new_item.streamdetails.url).strip()
-                        if url.startswith(("http://", "https://")):
-                            return url
+                    # Item should now be in the queue — retry lookup by the provided item_id.
+                    new_item = await self.get_queue_item(_enqueue_real_queue_id, item_id)
+                    if new_item:
+                        if new_item.streamdetails and new_item.streamdetails.url:
+                            url = str(new_item.streamdetails.url).strip()
+                            if url.startswith(("http://", "https://")):
+                                return url
+                        # Item is in the queue but streamdetails not yet populated.
+                        # Return the MA stream proxy URL using the validated queue_item_id.
+                        real_item_id = new_item.queue_item_id or item_id
+                        enqueue_stream_url = f"{self._base_url}/stream/{_enqueue_real_queue_id}/{real_item_id}"
+                        logger.info(
+                            "get_stream_url: enqueue-add resolved stream_url queue_id=%s item_id=%s url=%s",
+                            _enqueue_real_queue_id, real_item_id, enqueue_stream_url,
+                        )
+                        return enqueue_stream_url
+                    # Item not found by exact ID — scan all queue items for URI match.
+                    all_items = await self.get_queue_items(_enqueue_real_queue_id)
+                    for q_item in all_items:
+                        if q_item.uri == uri_to_resolve:
+                            uri_match_url = f"{self._base_url}/stream/{_enqueue_real_queue_id}/{q_item.queue_item_id}"
+                            logger.info(
+                                "get_stream_url: enqueue-add URI-match stream_url queue_id=%s item_id=%s url=%s",
+                                _enqueue_real_queue_id, q_item.queue_item_id, uri_match_url,
+                            )
+                            return uri_match_url
             except MusicAssistantError:
                 logger.warning("Enqueue-add fallback failed for %s (uri=%s)", item_id, uri_to_resolve)
 
         # Final fallback: use MA's built-in HTTP stream proxy endpoint.
         # MA can transcode and proxy any provider stream at this URL.
-        ma_stream_url = f"{self._base_url}/stream/{queue_id}/{item_id}"
+        # IMPORTANT: use the real MA player queue ID, not the EchoWeave logical queue_id
+        # (e.g. "queue-staging"), which MA does not recognise and returns 404.
+        _fallback_queue_id = queue_id
+        try:
+            _resolved_fallback_queue_id = (
+                locals().get("_enqueue_real_queue_id")
+                or await self._resolve_default_queue_id()
+            )
+            if _resolved_fallback_queue_id:
+                _fallback_queue_id = _resolved_fallback_queue_id
+        except Exception:
+            pass
+        ma_stream_url = f"{self._base_url}/stream/{_fallback_queue_id}/{item_id}"
         logger.info(
-            "get_stream_url: using MA HTTP stream proxy fallback queue_id=%s item_id=%s url=%s",
-            queue_id, item_id, ma_stream_url,
+            "get_stream_url: using MA HTTP stream proxy fallback queue_id=%s fallback_queue_id=%s item_id=%s url=%s",
+            queue_id, _fallback_queue_id, item_id, ma_stream_url,
         )
         return ma_stream_url
 

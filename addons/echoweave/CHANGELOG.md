@@ -5,6 +5,17 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.67] - 2026-04-19
+
+### Fixed
+
+- Fix stream 404: `_try_enqueue_search_result` (Alexa `skip_playback_start=True` path) now calls `_resolve_default_queue_id()` to obtain the real MA player queue ID (e.g. `upe8aacb9e766f`) instead of using the EchoWeave logical queue ID (`queue-staging`) as the synthetic `queue_id` and `origin_stream_path`. MA does not recognise EchoWeave's logical queue IDs and returned 404 for every stream candidate.
+- Fix `get_stream_url` enqueue-add fallback: after enqueueing with `option=add`, if the item is found in the queue, return its stream URL using the real MA `queue_item_id` even when `streamdetails` is not yet populated. Also scan all queue items for a URI match as secondary fallback.
+- Fix `get_stream_url` final fallback: use `_resolve_default_queue_id()` to get the real MA player queue ID instead of the logical EchoWeave `queue_id`, ensuring MA's HTTP stream proxy URL is valid.
+- Fix `_request_worker_handoff`: accept optional `resolved_ma_queue_id` parameter; use it in place of `flow["session_id"]` (EchoWeave logical ID); build `origin_stream_path` as `/edge/stream/{queue_id}/{queue_item_id}` instead of forwarding MA's internal `/flow/...` path (which EchoWeave's stream handler does not serve).
+- Fix `ma_push_url`: resolve real MA queue ID via `_resolve_default_queue_id()` before calling `_request_worker_handoff` and pass it as `resolved_ma_queue_id`.
+- Fix `stream_router.py` safety guard: use `_resolve_default_queue_id()` when building the MA HTTP proxy fallback URL so the fallback does not inherit the logical EchoWeave queue ID.
+
 ## [0.3.66] - 2026-04-18
 
 ### Fixed

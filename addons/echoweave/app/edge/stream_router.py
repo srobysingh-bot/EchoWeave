@@ -326,7 +326,16 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     # rather than an HTTP URL, it cannot be fetched. Replace it with MA's HTTP stream proxy.
     if not origin_source_url.startswith(("http://", "https://")):
         ma_base_url = settings.ma_base_url.rstrip("/")
-        fallback_url = f"{ma_base_url}/stream/{queue_id}/{queue_item_id}"
+        # Use the real MA player queue ID — the route parameter queue_id may be a logical
+        # EchoWeave identifier (e.g. "queue-staging") that MA does not recognise.
+        _guard_queue_id = queue_id
+        try:
+            _real_guard_queue_id = await ma_client._resolve_default_queue_id()
+            if _real_guard_queue_id:
+                _guard_queue_id = _real_guard_queue_id
+        except Exception:
+            pass
+        fallback_url = f"{ma_base_url}/stream/{_guard_queue_id}/{queue_item_id}"
         logger.warning(json.dumps({
             "event": "edge_stream_non_http_source_replaced",
             "request_id": request_id,
@@ -334,6 +343,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             "queue_item_id": queue_item_id,
             "original_url": origin_source_url,
             "fallback_url": fallback_url,
+            "resolved_ma_queue_id": _guard_queue_id,
         }))
         origin_source_url = fallback_url
         # Clear the bad cached entry so future requests re-resolve correctly.
