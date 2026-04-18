@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.72] - 2026-04-18
+
+### Fixed
+
+- Remove play_index call from `_build_ma_stream_url` — it doesn't work (500/400), takes 13 seconds (10s timeout + 3s sleep), and causes the Durable Object to timeout (502) before Alexa even tries to fetch the stream. The correct URL with `player_id=upe8aacb9e766f` was NEVER actually tested against MA's stream server because the timeout killed the flow.
+- MA's stream server resolves stream details on-the-fly in `serve_queue_item_stream` — no pre-triggered playback needed.
+- Added response body logging for 404 errors from MA's stream server for diagnostics.
+
 ## [0.3.71] - 2026-04-18
 
 ### Fixed
