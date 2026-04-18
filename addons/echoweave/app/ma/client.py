@@ -31,20 +31,16 @@ _MAX_RETRIES = 2
 # ── Session-ID resolution ────────────────────────────────────────────
 # MA's PlayerQueue.session_id has serialize="omit", so it never appears
 # in API responses.  We extract it from Player.current_media.custom_data
-# and cache it here.
+# (set when a previous play happened via MA UI) and cache it here.
 #
-# Background: play_index takes 6-10+ seconds (_load_item resolves stream
-# details and fills AudioBuffer).  Only AFTER _load_item, play_media sets
-# Player.current_media with session_id in custom_data.
-#
-# Strategy:
-#   _build_ma_stream_url  → fast (cache/current_media or "nosession")
-#                            starts background resolution if needed
-#   ensure_session_id     → slow (awaits background play_index, up to 15s)
-#                            called by stream_router on session-related 404
+# IMPORTANT: We never call play_index ourselves.  play_index sets
+# queue.session_id to a new random value that we can't read back
+# (serialize="omit"), and if _load_item fails the 500 leaves
+# session_id permanently corrupted.  When session_id is None
+# (fresh start / MA restart), the stream server skips the check
+# entirely — any session value works.
 _ma_session_cache: dict[str, tuple[str, float]] = {}
 _MA_SESSION_CACHE_TTL = 600  # 10 minutes
-_session_resolve_tasks: dict[str, asyncio.Task] = {}
 
 import time as _time_mod
 
@@ -1232,9 +1228,10 @@ class MusicAssistantClient:
     ) -> str | None:
         """Construct MA stream server URL — **fast, non-blocking**.
 
-        Returns URL with the best-known session_id.  If none is available,
-        uses ``"nosession"`` and kicks off a background resolution task so
-        that the next call (from stream_router retry) can use the real value.
+        Returns URL with the best-known session_id.  If none is available
+        (no previous MA UI play), uses ``"nosession"``.  When
+        ``queue.session_id`` is ``None`` on the MA server (fresh start),
+        the stream server skips session validation and any value works.
         """
         from urllib.parse import urlparse
 
@@ -1277,9 +1274,11 @@ class MusicAssistantClient:
             logger.warning("_build_ma_stream_url: no player_id found queue_id=%s", queue_id)
             return None
 
-        # ── 3. No session? Start background resolution, return nosession ─
+        # ── 3. No session? Use "nosession" placeholder ─────────────────
+        # When queue.session_id is None (fresh MA start, or restored
+        # from cache where session_id is omitted), the stream server
+        # skips the session check entirely — any value works.
         if not session_id:
-            self._start_background_session_resolve(queue_id)
             session_id = "nosession"
 
         url = f"http://{ma_host}:{ma_stream_port}/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}"
@@ -1334,97 +1333,6 @@ class MusicAssistantClient:
         except Exception:
             pass
         return None
-
-    def _start_background_session_resolve(self, queue_id: str) -> None:
-        """Fire-and-forget: start play_index in background to populate session."""
-        task = _session_resolve_tasks.get(queue_id)
-        if task and not task.done():
-            return  # already running
-        logger.info("_start_background_session_resolve: starting for queue_id=%s", queue_id)
-        task = asyncio.create_task(self._resolve_session_via_play(queue_id))
-        _session_resolve_tasks[queue_id] = task
-
-    async def _resolve_session_via_play(self, queue_id: str) -> str | None:
-        """Await play_index completion, then extract session_id from current_media.
-
-        play_index flow on MA server:
-          1. queue.session_id = shortuuid.random(8)   ← instant
-          2. _load_item (get_stream_details + AudioBuffer) ← 5-10 s
-          3. player.current_media = media (with session_id in custom_data)
-          4. cmd_play_media → may fail (Echo Dot can't play natively)
-
-        current_media is set at step 3 (before cmd_play_media fails).
-        """
-        logger.info(
-            "_resolve_session_via_play: firing play_index queue_id=%s", queue_id,
-        )
-        try:
-            await self._post_command(
-                "player_queues/play_index", queue_id=queue_id, index=0
-            )
-            logger.info("_resolve_session_via_play: play_index returned OK queue_id=%s", queue_id)
-        except Exception as exc:
-            # play_index may return 500 if cmd_play_media fails —
-            # current_media was still set before the failure.
-            logger.warning(
-                "_resolve_session_via_play: play_index error (expected): %s", exc,
-            )
-
-        # Check current_media now — it should have the session_id.
-        sid = await self._check_player_session_id(queue_id)
-        if sid:
-            _cache_session_id(queue_id, sid)
-            logger.info(
-                "_resolve_session_via_play: cached session_id=%s queue_id=%s", sid, queue_id,
-            )
-        else:
-            logger.warning(
-                "_resolve_session_via_play: no session_id after play_index queue_id=%s", queue_id,
-            )
-        return sid
-
-    async def ensure_session_id(
-        self, queue_id: str, *, timeout: float = 15.0
-    ) -> str | None:
-        """Get a valid session_id, waiting for background resolution if needed.
-
-        Called by stream_router when the initial URL had ``nosession`` and
-        got a 404.  Waits up to *timeout* seconds for the background
-        play_index task to complete.
-        """
-        # Fast: cache
-        cached = _get_cached_session_id(queue_id)
-        if cached:
-            return cached
-
-        # Fast: current_media
-        sid = await self._check_player_session_id(queue_id)
-        if sid:
-            _cache_session_id(queue_id, sid)
-            return sid
-
-        # Slow: wait for existing background task or start a new one
-        task = _session_resolve_tasks.get(queue_id)
-        if not task or task.done():
-            logger.info("ensure_session_id: starting new resolution for queue_id=%s", queue_id)
-            task = asyncio.create_task(self._resolve_session_via_play(queue_id))
-            _session_resolve_tasks[queue_id] = task
-
-        logger.info(
-            "ensure_session_id: waiting for resolution queue_id=%s timeout=%.1fs",
-            queue_id, timeout,
-        )
-        try:
-            result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-            if result:
-                return result
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            logger.warning(
-                "ensure_session_id: timed out waiting for session queue_id=%s", queue_id,
-            )
-
-        # Final check — task might have cached it before timeout
-        return _get_cached_session_id(queue_id)
 
     async def get_queue_state(self, queue_id: str | None = None) -> dict[str, Any]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="get_queue_state.request")

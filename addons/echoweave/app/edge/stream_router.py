@@ -462,7 +462,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         _stream_url_cache.pop(_retry_cache_key, None)
         # Also invalidate the MA session-ID cache – the 404 may be caused
         # by a stale or missing session_id in the stream URL.
-        from app.ma.client import invalidate_session_cache, _cache_session_id
+        from app.ma.client import invalidate_session_cache
         invalidate_session_cache(queue_id)
         logger.warning(json.dumps({
             "event": "edge_stream_all_candidates_failed_retry",
@@ -473,87 +473,6 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             "session_cache_cleared": True,
             "origin_url": origin_source_url,
         }))
-
-        # ── Session-aware retry ──────────────────────────────────────
-        # If the URL has "nosession", resolve the real session_id first
-        # (waits up to 15 s for the background play_index to complete).
-        if "/nosession/" in origin_source_url:
-            try:
-                _resolved_sid = await ma_client.ensure_session_id(
-                    queue_id, timeout=15.0,
-                )
-            except Exception as _sid_exc:
-                logger.warning(json.dumps({
-                    "event": "edge_stream_session_resolve_error",
-                    "request_id": request_id,
-                    "queue_id": queue_id,
-                    "error": str(_sid_exc),
-                }))
-                _resolved_sid = None
-
-            if _resolved_sid and _resolved_sid != "nosession":
-                _session_url = origin_source_url.replace(
-                    "/nosession/", f"/{_resolved_sid}/"
-                )
-                logger.info(json.dumps({
-                    "event": "edge_stream_session_resolved",
-                    "request_id": request_id,
-                    "queue_id": queue_id,
-                    "session_id": _resolved_sid,
-                    "session_url": _session_url,
-                }))
-                _sc_candidates = (
-                    _build_alexa_source_url_candidates(_session_url)
-                    if is_alexa_profile
-                    else [(_session_url, "session_fix")]
-                )
-                for _sc_url, _sc_mode in _sc_candidates:
-                    try:
-                        _sc_req = client.build_request(
-                            "GET", _sc_url, headers=headers,
-                        )
-                        _sc_resp = await client.send(_sc_req, stream=True)
-                    except Exception:
-                        continue
-                    if _sc_resp.status_code in (200, 206):
-                        _sc_ct = _sc_resp.headers.get("content-type", "")
-                        if (
-                            not is_alexa_profile
-                            or _is_alexa_supported_content_type(_sc_ct)
-                        ):
-                            upstream = _sc_resp
-                            selected_source_url = _sc_url
-                            selected_mode = f"session_{_sc_mode}"
-                            first_byte_elapsed = 0.0
-                            cache_stream_url(
-                                queue_id, queue_item_id, _session_url,
-                            )
-                            break
-                        if transcode_fallback is None:
-                            transcode_fallback = (
-                                _sc_url,
-                                f"session_{_sc_mode}",
-                                _sc_ct,
-                            )
-                        await _sc_resp.aclose()
-                    else:
-                        _sc_body = ""
-                        try:
-                            _sc_body = (await _sc_resp.aread()).decode(
-                                "utf-8", "replace"
-                            )[:500]
-                        except Exception:
-                            pass
-                        await _sc_resp.aclose()
-                        logger.warning(json.dumps({
-                            "event": "edge_stream_session_retry_failed",
-                            "request_id": request_id,
-                            "queue_id": queue_id,
-                            "mode": _sc_mode,
-                            "url": _sc_url,
-                            "status": _sc_resp.status_code,
-                            "body": _sc_body,
-                        }))
 
         # ── Fallback: full get_stream_url re-resolution ──────────────
         if upstream is None and transcode_fallback is None:

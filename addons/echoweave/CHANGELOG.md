@@ -5,6 +5,28 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.75] - 2026-04-18
+
+### Fixed
+
+- **Root cause fix**: Remove ALL play_index calls from our code. play_index sets
+  `queue.session_id = shortuuid.random(8)` immediately (before _load_item), and
+  when _load_item fails (500), `current_media` is never set — leaving session_id
+  permanently corrupted to an unreadable value. Every subsequent stream request
+  with "nosession" gets 404 because the MA stream server sees a non-matching
+  session_id.
+- Removed `_resolve_session_via_play`, `_start_background_session_resolve`,
+  `ensure_session_id`, and `_session_resolve_tasks` from client.py.
+- Removed session-aware retry block from stream_router.py (the 60+ line
+  ensure_session_id wait path that never helped because play_index always fails).
+- When `queue.session_id` is None (after MA restart — session_id has
+  `serialize="omit"` so it's not persisted), the MA stream server skips the
+  check entirely and any session value works.
+- The stream server resolves stream details on-demand for queue items that
+  were added with `option="add"` — no play_index pre-trigger needed.
+- **User action required**: Restart Music Assistant to clear stale session_id
+  values set by previous v0.3.73/v0.3.74 play_index calls.
+
 ## [0.3.72] - 2026-04-18
 
 ### Fixed
