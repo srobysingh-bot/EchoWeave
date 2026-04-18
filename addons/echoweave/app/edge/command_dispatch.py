@@ -141,7 +141,7 @@ async def execute_edge_command(
         queue_item_id_val = resolved.get("queue_item_id")
         uri_val = str(resolved.get("uri") or "")
         if queue_id_val and queue_item_id_val:
-            if uri_val and "://" in uri_val:
+            if uri_val and "://" in uri_val and not uri_val.startswith(("http://", "https://")):
                 # Synthetic item from search — store URI mapping for later
                 # stream resolution.  Skip build_stream_context which would
                 # make 3+ failing HTTP calls to MA and waste 3-6 seconds.
@@ -158,9 +158,15 @@ async def execute_edge_command(
                         queue_item_id=queue_item_id_val,
                     )
                     source_url = stream_ctx.get("source_url")
-                    if source_url:
+                    # Only cache real HTTP URLs — never cache provider URIs.
+                    if source_url and source_url.startswith(("http://", "https://")):
                         cache_stream_url(queue_id_val, queue_item_id_val, source_url)
                         logger.debug(f"Cached stream URL for {queue_id_val}/{queue_item_id_val}")
+                    elif source_url:
+                        logger.warning(
+                            "prepare_play skipped caching non-HTTP source_url=%s queue_id=%s queue_item_id=%s",
+                            source_url, queue_id_val, queue_item_id_val,
+                        )
                 except Exception as cache_exc:
                     logger.warning(f"Failed to cache stream URL: {cache_exc}")
                     # Don't fail prepare_play if caching fails

@@ -5,6 +5,16 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.66] - 2026-04-18
+
+### Fixed
+
+- Fix songs not playing: `get_stream_url()` was returning raw provider URIs (`apple_music://track/...`, `spotify://...`) instead of HTTP URLs, causing httpx to fail with "Request URL is missing an 'http://' or 'https://' protocol."
+- `get_stream_url` now skips non-HTTP `item.uri` and `item.streamdetails.url` values and falls through to `player_queues/get_stream_url` command; final fallback uses `{ma_base_url}/stream/{queue_id}/{item_id}` (MA's built-in HTTP transcoding proxy).
+- `command_dispatch.py`: never cache provider URIs as stream source URLs in `prepare_play`.
+- `stream_router.py`: safety guard replaces any non-HTTP `origin_source_url` with MA's HTTP stream proxy before attempting to fetch; clears bad cached entries.
+- `stream_router.py`: URI mapping fallback no longer caches non-HTTP values; sets `origin_source_url = None` so the safety guard can replace it.
+
 ## [0.3.65] - 2026-04-18
 
 ### Fixed

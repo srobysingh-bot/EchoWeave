@@ -282,7 +282,8 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             try:
                 origin_source_url = await ma_client.get_stream_url(queue_id, queue_item_id)
                 resolve_elapsed = time.perf_counter() - resolve_start
-                if origin_source_url:
+                # Only cache real HTTP URLs — never cache provider URIs.
+                if origin_source_url and origin_source_url.startswith(("http://", "https://")):
                     cache_stream_url(queue_id, queue_item_id, origin_source_url)
                     logger.info(json.dumps({
                         "event": "edge_stream_uri_fallback_resolved",
@@ -291,6 +292,15 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
                         "queue_item_id": queue_item_id,
                         "lookup_ms": round(resolve_elapsed * 1000, 1),
                     }))
+                elif origin_source_url:
+                    logger.warning(json.dumps({
+                        "event": "edge_stream_uri_fallback_non_http",
+                        "request_id": request_id,
+                        "queue_id": queue_id,
+                        "queue_item_id": queue_item_id,
+                        "url": origin_source_url,
+                    }))
+                    origin_source_url = None  # will be replaced by guard below
             except Exception as e2:
                 logger.warning(json.dumps({
                     "event": "edge_stream_uri_fallback_failed",
@@ -311,6 +321,24 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     
     if not origin_source_url:
         raise HTTPException(status_code=404, detail="Stream source unavailable")
+
+    # Safety guard: if the resolved URL is a provider URI (apple_music://, spotify://, etc.)
+    # rather than an HTTP URL, it cannot be fetched. Replace it with MA's HTTP stream proxy.
+    if not origin_source_url.startswith(("http://", "https://")):
+        ma_base_url = settings.ma_base_url.rstrip("/")
+        fallback_url = f"{ma_base_url}/stream/{queue_id}/{queue_item_id}"
+        logger.warning(json.dumps({
+            "event": "edge_stream_non_http_source_replaced",
+            "request_id": request_id,
+            "queue_id": queue_id,
+            "queue_item_id": queue_item_id,
+            "original_url": origin_source_url,
+            "fallback_url": fallback_url,
+        }))
+        origin_source_url = fallback_url
+        # Clear the bad cached entry so future requests re-resolve correctly.
+        cache_key = f"{queue_id}:{queue_item_id}"
+        _stream_url_cache.pop(cache_key, None)
 
     headers = {}
     range_header = request.headers.get("range")

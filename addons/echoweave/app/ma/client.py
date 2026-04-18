@@ -1479,22 +1479,28 @@ class MusicAssistantClient:
         raise MusicAssistantError(json.dumps({"code": "queue_empty", "message": "No playable queue item available."}))
 
     async def get_stream_url(self, queue_id: str, item_id: str) -> str | None:
-        """Resolve a playable stream URL from MA for the given queue item.
+        """Resolve a playable HTTP stream URL from MA for the given queue item.
 
         Returns ``None`` if no URL can be resolved.
+        Provider URIs (apple_music://, spotify://, etc.) are never returned —
+        only http:// or https:// URLs that httpx can actually fetch.
         """
         # Check the stream_router cache first (may have been pre-cached).
+        # Only return cached value if it is a real HTTP URL.
         from app.edge.stream_router import get_cached_stream_url
         cached = get_cached_stream_url(queue_id, item_id)
-        if cached:
+        if cached and cached.startswith(("http://", "https://")):
             return cached
 
         try:
             item = await self.get_queue_item(queue_id, item_id)
             if item and item.streamdetails and item.streamdetails.url:
-                return item.streamdetails.url
-            if item and item.uri:
-                return item.uri
+                url = item.streamdetails.url
+                if url.startswith(("http://", "https://")):
+                    return url
+            # item.uri is a provider URI like apple_music://track/...
+            # Do NOT return it — it is not an HTTP URL and cannot be fetched.
+            # Fall through to command-based resolution below.
 
             # Fallback: command-based stream resolution in newer MA builds.
             result = await self._post_command_with_fallback(
@@ -1502,10 +1508,12 @@ class MusicAssistantClient:
                 queue_id=queue_id,
                 queue_item_id=item_id,
             )
-            if isinstance(result, str) and result:
+            if isinstance(result, str) and result.startswith(("http://", "https://")):
                 return result
             if isinstance(result, dict):
-                return str(result.get("url") or "") or None
+                url = str(result.get("url") or "").strip()
+                if url.startswith(("http://", "https://")):
+                    return url
         except MusicAssistantError:
             logger.warning("Stream resolution failed for item %s in queue %s", item_id, queue_id)
 
@@ -1528,14 +1536,13 @@ class MusicAssistantClient:
             try:
                 media_item = await self._post_command("music/item_by_uri", uri=uri_to_resolve)
                 if isinstance(media_item, dict):
-                    # Check for stream details
+                    # Check for stream details — only accept HTTP URLs
                     sd = media_item.get("streamdetails") or {}
                     if isinstance(sd, dict) and sd.get("url"):
-                        return str(sd["url"])
-                    # Use the item's URI as the fallback stream source
-                    resolved_uri = str(media_item.get("uri") or "").strip()
-                    if resolved_uri:
-                        return resolved_uri
+                        url = str(sd["url"]).strip()
+                        if url.startswith(("http://", "https://")):
+                            return url
+                    # item.uri from media_item is also a provider URI — skip it
             except MusicAssistantError:
                 logger.warning("URI-based stream resolution failed for %s (uri=%s)", item_id, uri_to_resolve)
 
@@ -1553,13 +1560,20 @@ class MusicAssistantClient:
                     # Item should now be in the queue — retry lookup
                     new_item = await self.get_queue_item(real_queue_id, item_id)
                     if new_item and new_item.streamdetails and new_item.streamdetails.url:
-                        return new_item.streamdetails.url
-                    if new_item and new_item.uri:
-                        return new_item.uri
+                        url = str(new_item.streamdetails.url).strip()
+                        if url.startswith(("http://", "https://")):
+                            return url
             except MusicAssistantError:
                 logger.warning("Enqueue-add fallback failed for %s (uri=%s)", item_id, uri_to_resolve)
 
-        return None
+        # Final fallback: use MA's built-in HTTP stream proxy endpoint.
+        # MA can transcode and proxy any provider stream at this URL.
+        ma_stream_url = f"{self._base_url}/stream/{queue_id}/{item_id}"
+        logger.info(
+            "get_stream_url: using MA HTTP stream proxy fallback queue_id=%s item_id=%s url=%s",
+            queue_id, item_id, ma_stream_url,
+        )
+        return ma_stream_url
 
     async def execute_play_command(self, queue_id: str | None = None) -> tuple[bool, str]:
         """Attempt to start/resume playback through MA command API.
