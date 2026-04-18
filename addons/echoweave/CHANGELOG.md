@@ -5,6 +5,22 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.76] - 2026-04-18
+
+### Fixed
+
+- **Alexa model**: Added `"play {query}"` utterance to PlayAudio intent so
+  "Alexa ask spider bridge to play Still Rollin" works correctly. Previously,
+  "play Still Rollin" had no matching utterance — Alexa routed it natively to
+  JioSavan instead of EchoWeave.
+- **Stream pre-warm**: After building the MA stream URL in `_build_ma_stream_url`,
+  fire a background HEAD-only fetch to MA's stream server (port 8097). MA
+  resolves `streamdetails` before sending the 200 headers, so this warms the
+  in-memory cache. By the time Alexa fetches the real stream (seconds later),
+  the slow provider API call is already done — first-fetch is now instant.
+- **Welcome message**: Updated launch response to tell user the correct
+  utterance format: "play followed by a song name".
+
 ## [0.3.75] - 2026-04-18
 
 ### Fixed

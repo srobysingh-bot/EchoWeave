@@ -22,6 +22,7 @@
                                                                                      }
                                                                                  ],
                                                                        "samples":  [
+                                                                                       "play {query}",
                                                                                        "search for {query}",
                                                                                        "play songs by {query}",
                                                                                        "play music by {query}"

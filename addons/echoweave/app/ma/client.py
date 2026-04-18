@@ -45,6 +45,32 @@ _MA_SESSION_CACHE_TTL = 600  # 10 minutes
 import time as _time_mod
 
 
+async def _prewarm_ma_stream_url(url: str) -> None:
+    """Pre-warm MA's stream server by fetching response headers only.
+
+    MA's ``serve_queue_item_stream`` resolves ``streamdetails`` *before*
+    sending the HTTP 200 headers (it needs them to pick the output format).
+    Connecting and reading just the headers therefore warms the in-memory
+    ``queue_item.streamdetails`` cache, so the real Alexa fetch is instant.
+
+    The connection is dropped after headers arrive; MA handles the
+    ``BrokenPipeError`` / ``ConnectionResetError`` gracefully and logs nothing
+    (because ``first_chunk_received`` is ``False`` at that point).
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(25.0, connect=5.0), follow_redirects=False
+        ) as _client:
+            async with _client.stream("GET", url) as _resp:
+                logger.info(
+                    "_prewarm_ma_stream_url: status=%d url=%s",
+                    _resp.status_code, url,
+                )
+    except Exception as exc:
+        # Pre-warm is best-effort — never let it affect the main flow.
+        logger.debug("_prewarm_ma_stream_url: %s: %s", exc.__class__.__name__, exc)
+
+
 def _get_cached_session_id(queue_id: str) -> str | None:
     entry = _ma_session_cache.get(queue_id)
     if entry:
@@ -1286,6 +1312,11 @@ class MusicAssistantClient:
             "_build_ma_stream_url: url=%s session_id=%s player_id=%s",
             url, session_id, player_id,
         )
+        # Pre-warm: fire a background GET to MA's stream server so it resolves
+        # streamdetails now.  MA caches them on the queue_item in-memory, so
+        # by the time Alexa actually fetches the stream (a few seconds later)
+        # the slow part (provider API call) is already done.
+        asyncio.create_task(_prewarm_ma_stream_url(url))
         return url
 
     # ── session-ID helpers ─────────────────────────────────────────────

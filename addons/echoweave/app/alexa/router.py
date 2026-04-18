@@ -195,8 +195,8 @@ def _handle_launch() -> dict[str, Any]:
     """Respond to LaunchRequest with a welcome message."""
     logger.info("Entering _handle_launch.")
     response = build_response(
-        speech="Welcome to EchoWeave. You can say play audio to begin.",
-        reprompt="Say play audio to begin.",
+        speech="Welcome to EchoWeave. Say play to resume, or say play followed by a song name to search, for example play Still Rollin.",
+        reprompt="Say play to resume, or say play followed by a song name.",
         should_end_session=False,
     )
     logger.info("_handle_launch payload: %s", response)
