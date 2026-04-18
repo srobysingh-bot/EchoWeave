@@ -1105,10 +1105,17 @@ class MusicAssistantClient:
             }))
         return None
 
+    async def get_queue_info(self, queue_id: str) -> dict[str, Any]:
+        """Return raw queue metadata dict from MA (includes session_id, etc.)."""
+        data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
+        if isinstance(data, dict):
+            return data
+        return {}
+
     async def get_current_queue_item(self, queue_id: str) -> Optional[MAQueueItem]:
         """Return the currently-playing queue item, or ``None``."""
-        data = await self._post_command_with_fallback(self._queue_commands(), queue_id=queue_id)
-        if data and isinstance(data, dict):
+        data = await self.get_queue_info(queue_id)
+        if data:
             current = data.get("current_item")
             if current:
                 return MAQueueItem.model_validate(current)
@@ -1173,6 +1180,66 @@ class MusicAssistantClient:
                     continue
         logger.warning("MA queue auto-discovery found no active queue")
         return None
+
+    async def _build_ma_stream_url(
+        self,
+        queue_id: str,
+        queue_item_id: str,
+        *,
+        fmt: str = "mp3",
+    ) -> str | None:
+        """Construct the correct MA stream server URL for a queue item.
+
+        MA runs a separate HTTP stream server on port 8097 (default) with URL
+        format ``/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}``.
+        Returns ``None`` if required info (session_id, player_id) cannot be resolved.
+        """
+        from urllib.parse import urlparse
+
+        # Extract host from MA API base URL (e.g. http://192.168.1.135:8095)
+        parsed = urlparse(self._base_url)
+        ma_host = parsed.hostname or "127.0.0.1"
+        # MA stream server default port — separate from the API port.
+        ma_stream_port = 8097
+
+        # Get queue session_id
+        session_id: str | None = None
+        player_id: str | None = None
+        try:
+            queue_info = await self.get_queue_info(queue_id)
+            session_id = str(queue_info.get("session_id") or "").strip()
+            # Also extract the queue_id as known by MA (in case ours is stale)
+            ma_queue_id = str(queue_info.get("queue_id") or "").strip()
+            if ma_queue_id:
+                queue_id = ma_queue_id
+        except Exception as exc:
+            logger.warning("_build_ma_stream_url: failed to get queue info for %s: %s", queue_id, exc)
+
+        # Get a valid player_id (prefer the player that owns this queue)
+        try:
+            players = await self.get_players()
+            for p in players:
+                pid = str(p.get("player_id") or "").strip()
+                active_queue = str(p.get("active_queue") or p.get("active_source") or p.get("queue_id") or pid)
+                if active_queue == queue_id:
+                    player_id = pid
+                    break
+            # Fallback: use the first available player
+            if not player_id and players:
+                player_id = str(players[0].get("player_id") or "").strip()
+        except Exception as exc:
+            logger.warning("_build_ma_stream_url: failed to get players: %s", exc)
+
+        if not session_id or not player_id:
+            logger.warning(
+                "_build_ma_stream_url: missing required fields session_id=%s player_id=%s queue_id=%s",
+                session_id, player_id, queue_id,
+            )
+            return None
+
+        url = f"http://{ma_host}:{ma_stream_port}/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}"
+        logger.info("_build_ma_stream_url: built url=%s", url)
+        return url
 
     async def get_queue_state(self, queue_id: str | None = None) -> dict[str, Any]:
         requested_queue_id = self._sanitize_queue_id(queue_id, source="get_queue_state.request")
@@ -1685,29 +1752,31 @@ class MusicAssistantClient:
                             if url.startswith(("http://", "https://")):
                                 return url
                         # Item is in the queue but streamdetails not yet populated.
-                        # Return the MA stream proxy URL using the validated queue_item_id.
+                        # Build the correct MA stream server URL (port 8097, /single/ path).
                         real_item_id = new_item.queue_item_id or item_id
-                        enqueue_stream_url = f"{self._base_url}/stream/{_enqueue_real_queue_id}/{real_item_id}"
-                        logger.info(
-                            "get_stream_url: enqueue-add resolved stream_url queue_id=%s item_id=%s url=%s",
-                            _enqueue_real_queue_id, real_item_id, enqueue_stream_url,
-                        )
-                        return enqueue_stream_url
+                        enqueue_stream_url = await self._build_ma_stream_url(_enqueue_real_queue_id, real_item_id)
+                        if enqueue_stream_url:
+                            logger.info(
+                                "get_stream_url: enqueue-add resolved stream_url queue_id=%s item_id=%s url=%s",
+                                _enqueue_real_queue_id, real_item_id, enqueue_stream_url,
+                            )
+                            return enqueue_stream_url
                     # Item not found by exact ID — scan all queue items for URI match.
                     all_items = await self.get_queue_items(_enqueue_real_queue_id)
                     for q_item in all_items:
                         if q_item.uri == uri_to_resolve:
-                            uri_match_url = f"{self._base_url}/stream/{_enqueue_real_queue_id}/{q_item.queue_item_id}"
-                            logger.info(
-                                "get_stream_url: enqueue-add URI-match stream_url queue_id=%s item_id=%s url=%s",
-                                _enqueue_real_queue_id, q_item.queue_item_id, uri_match_url,
-                            )
-                            return uri_match_url
+                            uri_match_url = await self._build_ma_stream_url(_enqueue_real_queue_id, q_item.queue_item_id)
+                            if uri_match_url:
+                                logger.info(
+                                    "get_stream_url: enqueue-add URI-match stream_url queue_id=%s item_id=%s url=%s",
+                                    _enqueue_real_queue_id, q_item.queue_item_id, uri_match_url,
+                                )
+                                return uri_match_url
             except MusicAssistantError:
                 logger.warning("Enqueue-add fallback failed for %s (uri=%s)", item_id, uri_to_resolve)
 
-        # Final fallback: use MA's built-in HTTP stream proxy endpoint.
-        # MA can transcode and proxy any provider stream at this URL.
+        # Final fallback: use MA's stream server (port 8097) with the correct
+        # /single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt} URL format.
         # IMPORTANT: use the real MA player queue ID, not the EchoWeave logical queue_id
         # (e.g. "queue-staging"), which MA does not recognise and returns 404.
         _fallback_queue_id = queue_id
@@ -1720,7 +1789,14 @@ class MusicAssistantClient:
                 _fallback_queue_id = _resolved_fallback_queue_id
         except Exception:
             pass
-        ma_stream_url = f"{self._base_url}/stream/{_fallback_queue_id}/{item_id}"
+        ma_stream_url = await self._build_ma_stream_url(_fallback_queue_id, item_id)
+        if not ma_stream_url:
+            # Absolute last resort if we couldn't resolve session_id/player_id:
+            # Try the old-style URL on port 8097 without session validation.
+            from urllib.parse import urlparse as _urlparse
+            _parsed = _urlparse(self._base_url)
+            _host = _parsed.hostname or "127.0.0.1"
+            ma_stream_url = f"http://{_host}:8097/single/unknown/{_fallback_queue_id}/{item_id}/unknown.mp3"
         logger.info(
             "get_stream_url: using MA HTTP stream proxy fallback queue_id=%s fallback_queue_id=%s item_id=%s url=%s",
             queue_id, _fallback_queue_id, item_id, ma_stream_url,

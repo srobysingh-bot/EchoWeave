@@ -194,16 +194,29 @@ async def _readback_player_state(
 def _extract_flow_parts(stream_url: str) -> dict[str, str]:
     parsed = urlparse(stream_url)
     parts = [unquote(part) for part in parsed.path.split("/") if part]
-    if len(parts) < 4 or parts[0] != "flow":
-        return {}
-    # /flow/<session_id>/<player_id_or_name>/<item_id>/...
-    return {
-        "session_id": parts[1],
-        "player_hint": parts[2],
-        "item_id": parts[3],
-        "path": parsed.path,
-        "query": parsed.query,
-    }
+    # MA stream URL format: /flow/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}
+    # or /single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}
+    if len(parts) >= 5 and parts[0] in ("flow", "single"):
+        player_fmt = parts[4]  # e.g. "player_id.mp3"
+        player_hint = player_fmt.rsplit(".", 1)[0] if "." in player_fmt else player_fmt
+        return {
+            "session_id": parts[1],
+            "queue_id": parts[2],
+            "player_hint": player_hint,
+            "item_id": parts[3],
+            "path": parsed.path,
+            "query": parsed.query,
+        }
+    # Legacy fallback: /flow/<session_id>/<player_hint>/<item_id>/...
+    if len(parts) >= 4 and parts[0] == "flow":
+        return {
+            "session_id": parts[1],
+            "player_hint": parts[2],
+            "item_id": parts[3],
+            "path": parsed.path,
+            "query": parsed.query,
+        }
+    return {}
 
 
 def _build_public_playback_url(stream_url: str, settings: Any) -> str:
@@ -259,11 +272,10 @@ async def _request_worker_handoff(
     if not connector_id or not connector_secret or not tenant_id or not home_id:
         raise ValueError("missing-connector-auth")
 
-    # Use the resolved real MA queue ID when available.  flow["session_id"] holds the
-    # EchoWeave logical queue identifier (e.g. "queue-staging") from the MA stream URL
-    # path, which MA does not recognise.  The real MA player queue ID must be used so
-    # that the stream token and origin_stream_path are valid MA references.
-    queue_id = resolved_ma_queue_id or str(flow.get("session_id") or "").strip()
+    # Use the resolved real MA queue ID when available.  The flow parts may contain
+    # the queue_id directly (from the new MA URL format), or fall back to
+    # resolved_ma_queue_id, or lastly the session_id from the legacy format.
+    queue_id = resolved_ma_queue_id or str(flow.get("queue_id") or flow.get("session_id") or "").strip()
     queue_item_id = str(flow.get("item_id") or "").strip()
     if not queue_id or not queue_item_id:
         raise ValueError("missing-flow-identifiers")

@@ -325,9 +325,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
     # Safety guard: if the resolved URL is a provider URI (apple_music://, spotify://, etc.)
     # rather than an HTTP URL, it cannot be fetched. Replace it with MA's HTTP stream proxy.
     if not origin_source_url.startswith(("http://", "https://")):
-        ma_base_url = settings.ma_base_url.rstrip("/")
-        # Use the real MA player queue ID — the route parameter queue_id may be a logical
-        # EchoWeave identifier (e.g. "queue-staging") that MA does not recognise.
+        # Use the real MA stream server URL (port 8097, /single/ path).
         _guard_queue_id = queue_id
         try:
             _real_guard_queue_id = await ma_client._resolve_default_queue_id()
@@ -335,7 +333,14 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
                 _guard_queue_id = _real_guard_queue_id
         except Exception:
             pass
-        fallback_url = f"{ma_base_url}/stream/{_guard_queue_id}/{queue_item_id}"
+        fallback_url = await ma_client._build_ma_stream_url(_guard_queue_id, queue_item_id)
+        if not fallback_url:
+            # Couldn't resolve session_id/player_id; try direct URL on stream port
+            from urllib.parse import urlparse as _urlparse
+            ma_base_url = settings.ma_base_url.rstrip("/")
+            _parsed = _urlparse(ma_base_url)
+            _host = _parsed.hostname or "127.0.0.1"
+            fallback_url = f"http://{_host}:8097/single/unknown/{_guard_queue_id}/{queue_item_id}/unknown.mp3"
         logger.warning(json.dumps({
             "event": "edge_stream_non_http_source_replaced",
             "request_id": request_id,

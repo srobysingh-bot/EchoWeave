@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.69] - 2026-04-18
+
+### Fixed
+
+- **Root cause fix for stream 404:** MA's audio stream server runs on a separate port (8097), not the API port (8095), and uses URL format `/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}`. EchoWeave was constructing URLs as `http://MA:8095/stream/{queue_id}/{queue_item_id}` — wrong port, wrong path, missing session_id and player_id. Added `_build_ma_stream_url()` method that queries queue session_id and player_id from MA, then constructs the correct stream server URL.
+- Updated `_extract_flow_parts()` to parse the correct MA stream URL format with 5 path segments.
+- Updated push-url handoff to extract `queue_id` from flow parts when available.
+
 ## [0.3.68] - 2026-04-18
 
 ### Fixed
