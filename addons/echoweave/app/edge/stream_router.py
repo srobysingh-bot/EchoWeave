@@ -460,12 +460,17 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         _retry_cache_key = f"{queue_id}:{queue_item_id}"
         _had_stale_cache = _retry_cache_key in _stream_url_cache
         _stream_url_cache.pop(_retry_cache_key, None)
+        # Also invalidate the MA session-ID cache – the 404 may be caused
+        # by a stale or missing session_id in the stream URL.
+        from app.ma.client import invalidate_session_cache
+        invalidate_session_cache(queue_id)
         logger.warning(json.dumps({
             "event": "edge_stream_all_candidates_failed_retry",
             "request_id": request_id,
             "queue_id": queue_id,
             "queue_item_id": queue_item_id,
             "stale_cache_cleared": _had_stale_cache,
+            "session_cache_cleared": True,
             "origin_url": origin_source_url,
         }))
         try:
