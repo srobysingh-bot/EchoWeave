@@ -5,6 +5,14 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.70] - 2026-04-18
+
+### Fixed
+
+- Fix `_build_ma_stream_url`: session_id is not exposed by MA's `player_queues/get` API — use placeholder "echoweave" instead (MA skips session validation when queue has no active session). Previously returned None which caused fallback to `player_id=unknown`, and MA's stream server returned 404 "Unknown Player".
+- Use queue_id as player_id in absolute last-resort fallback (MA player_id often equals queue_id).
+- Add debug logging of queue_info response keys for diagnostics.
+
 ## [0.3.69] - 2026-04-18
 
 ### Fixed

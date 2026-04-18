@@ -1192,7 +1192,10 @@ class MusicAssistantClient:
 
         MA runs a separate HTTP stream server on port 8097 (default) with URL
         format ``/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}``.
-        Returns ``None`` if required info (session_id, player_id) cannot be resolved.
+        Returns ``None`` only if player_id cannot be resolved (MA requires a
+        valid player to serve the stream).
+        If session_id is empty, a placeholder is used — MA skips session
+        validation when the queue's own session_id is None.
         """
         from urllib.parse import urlparse
 
@@ -1207,6 +1210,11 @@ class MusicAssistantClient:
         player_id: str | None = None
         try:
             queue_info = await self.get_queue_info(queue_id)
+            logger.info(
+                "_build_ma_stream_url: queue_info keys=%s queue_id=%s",
+                list(queue_info.keys()) if queue_info else "empty",
+                queue_id,
+            )
             session_id = str(queue_info.get("session_id") or "").strip()
             # Also extract the queue_id as known by MA (in case ours is stale)
             ma_queue_id = str(queue_info.get("queue_id") or "").strip()
@@ -1214,6 +1222,12 @@ class MusicAssistantClient:
                 queue_id = ma_queue_id
         except Exception as exc:
             logger.warning("_build_ma_stream_url: failed to get queue info for %s: %s", queue_id, exc)
+
+        # If session_id is empty, use a placeholder. MA only validates session_id
+        # when the queue's own session_id is set; if the queue has no active session,
+        # any value passes the check.
+        if not session_id:
+            session_id = "echoweave"
 
         # Get a valid player_id (prefer the player that owns this queue)
         try:
@@ -1230,10 +1244,10 @@ class MusicAssistantClient:
         except Exception as exc:
             logger.warning("_build_ma_stream_url: failed to get players: %s", exc)
 
-        if not session_id or not player_id:
+        if not player_id:
             logger.warning(
-                "_build_ma_stream_url: missing required fields session_id=%s player_id=%s queue_id=%s",
-                session_id, player_id, queue_id,
+                "_build_ma_stream_url: no player_id found queue_id=%s",
+                queue_id,
             )
             return None
 
@@ -1791,12 +1805,11 @@ class MusicAssistantClient:
             pass
         ma_stream_url = await self._build_ma_stream_url(_fallback_queue_id, item_id)
         if not ma_stream_url:
-            # Absolute last resort if we couldn't resolve session_id/player_id:
-            # Try the old-style URL on port 8097 without session validation.
+            # Absolute last resort: player_id often equals queue_id in MA.
             from urllib.parse import urlparse as _urlparse
             _parsed = _urlparse(self._base_url)
             _host = _parsed.hostname or "127.0.0.1"
-            ma_stream_url = f"http://{_host}:8097/single/unknown/{_fallback_queue_id}/{item_id}/unknown.mp3"
+            ma_stream_url = f"http://{_host}:8097/single/echoweave/{_fallback_queue_id}/{item_id}/{_fallback_queue_id}.mp3"
         logger.info(
             "get_stream_url: using MA HTTP stream proxy fallback queue_id=%s fallback_queue_id=%s item_id=%s url=%s",
             queue_id, _fallback_queue_id, item_id, ma_stream_url,

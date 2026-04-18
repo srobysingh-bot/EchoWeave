@@ -340,7 +340,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
             ma_base_url = settings.ma_base_url.rstrip("/")
             _parsed = _urlparse(ma_base_url)
             _host = _parsed.hostname or "127.0.0.1"
-            fallback_url = f"http://{_host}:8097/single/unknown/{_guard_queue_id}/{queue_item_id}/unknown.mp3"
+            fallback_url = f"http://{_host}:8097/single/echoweave/{_guard_queue_id}/{queue_item_id}/{_guard_queue_id}.mp3"
         logger.warning(json.dumps({
             "event": "edge_stream_non_http_source_replaced",
             "request_id": request_id,
