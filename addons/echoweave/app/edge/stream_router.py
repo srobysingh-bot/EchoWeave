@@ -412,6 +412,12 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         first_byte_elapsed = (time.perf_counter() - fetch_start) * 1000
         content_type = candidate_response.headers.get("content-type", "")
         if candidate_response.status_code not in (200, 206):
+            # Read the error response body for diagnostics before closing
+            _err_body = ""
+            try:
+                _err_body = (await candidate_response.aread()).decode("utf-8", "replace")[:500]
+            except Exception:
+                pass
             await candidate_response.aclose()
             logger.warning(json.dumps({
                 "event": "worker_stream_fetch_failed",
@@ -422,6 +428,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
                 "candidate_url": candidate_url,
                 "reason": "bad_status",
                 "upstream_status": candidate_response.status_code,
+                "upstream_body": _err_body,
             }))
             continue
 

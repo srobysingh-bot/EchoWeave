@@ -5,6 +5,13 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.71] - 2026-04-18
+
+### Fixed
+
+- Root cause: MA items enqueued with `option="add"` have NO stream details resolved and NO session_id. MA's stream server can't serve audio without resolved details. Fix: `_build_ma_stream_url` now triggers `player_queues/play_index` when session_id is missing, forcing MA to resolve stream details and create a session. Even if Echo Dot playback fails, the stream details persist and the stream server can serve audio.
+- Added upstream response body logging in stream_router for 404 diagnostics.
+
 ## [0.3.70] - 2026-04-18
 
 ### Fixed

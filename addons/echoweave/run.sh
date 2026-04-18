@@ -44,7 +44,7 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.3.70 starting"
+bashio::log.info " EchoWeave v0.3.71 starting"
 bashio::log.info " Build ID:      ${ECHOWEAVE_BUILD_ID}"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " Mode:          ${ECHOWEAVE_MODE:-legacy}"

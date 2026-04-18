@@ -1192,10 +1192,10 @@ class MusicAssistantClient:
 
         MA runs a separate HTTP stream server on port 8097 (default) with URL
         format ``/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}``.
-        Returns ``None`` only if player_id cannot be resolved (MA requires a
-        valid player to serve the stream).
-        If session_id is empty, a placeholder is used — MA skips session
-        validation when the queue's own session_id is None.
+
+        If there is no active session, triggers ``player_queues/play_index`` to
+        force MA to resolve stream details and create a session, then reads
+        the session_id from the updated queue state.
         """
         from urllib.parse import urlparse
 
@@ -1205,31 +1205,8 @@ class MusicAssistantClient:
         # MA stream server default port — separate from the API port.
         ma_stream_port = 8097
 
-        # Get queue session_id
-        session_id: str | None = None
+        # Get a valid player_id first (we need it for both the play trigger and the URL)
         player_id: str | None = None
-        try:
-            queue_info = await self.get_queue_info(queue_id)
-            logger.info(
-                "_build_ma_stream_url: queue_info keys=%s queue_id=%s",
-                list(queue_info.keys()) if queue_info else "empty",
-                queue_id,
-            )
-            session_id = str(queue_info.get("session_id") or "").strip()
-            # Also extract the queue_id as known by MA (in case ours is stale)
-            ma_queue_id = str(queue_info.get("queue_id") or "").strip()
-            if ma_queue_id:
-                queue_id = ma_queue_id
-        except Exception as exc:
-            logger.warning("_build_ma_stream_url: failed to get queue info for %s: %s", queue_id, exc)
-
-        # If session_id is empty, use a placeholder. MA only validates session_id
-        # when the queue's own session_id is set; if the queue has no active session,
-        # any value passes the check.
-        if not session_id:
-            session_id = "echoweave"
-
-        # Get a valid player_id (prefer the player that owns this queue)
         try:
             players = await self.get_players()
             for p in players:
@@ -1238,18 +1215,74 @@ class MusicAssistantClient:
                 if active_queue == queue_id:
                     player_id = pid
                     break
-            # Fallback: use the first available player
             if not player_id and players:
                 player_id = str(players[0].get("player_id") or "").strip()
         except Exception as exc:
             logger.warning("_build_ma_stream_url: failed to get players: %s", exc)
 
         if not player_id:
-            logger.warning(
-                "_build_ma_stream_url: no player_id found queue_id=%s",
+            logger.warning("_build_ma_stream_url: no player_id found queue_id=%s", queue_id)
+            return None
+
+        # Get queue session_id
+        session_id: str | None = None
+        try:
+            queue_info = await self.get_queue_info(queue_id)
+            session_id = str(queue_info.get("session_id") or "").strip()
+            ma_queue_id = str(queue_info.get("queue_id") or "").strip()
+            if ma_queue_id:
+                queue_id = ma_queue_id
+            logger.info(
+                "_build_ma_stream_url: initial queue_info session_id=%s state=%s queue_id=%s",
+                session_id or "(empty)",
+                queue_info.get("state", "?"),
                 queue_id,
             )
-            return None
+        except Exception as exc:
+            logger.warning("_build_ma_stream_url: failed to get queue info for %s: %s", queue_id, exc)
+
+        # If no session_id, stream details are NOT resolved.
+        # Trigger playback to force MA to resolve audio and create a session.
+        if not session_id:
+            logger.info(
+                "_build_ma_stream_url: no session_id — triggering play_index to force stream resolution "
+                "queue_id=%s queue_item_id=%s",
+                queue_id, queue_item_id,
+            )
+            try:
+                await self._post_command_with_fallback(
+                    ["player_queues/play_index", "playerqueues/play_index"],
+                    queue_id=queue_id,
+                    index=queue_item_id,
+                )
+                logger.info("_build_ma_stream_url: play_index succeeded, waiting for resolution")
+            except MusicAssistantError as exc:
+                # Expected: MA tries to play on Echo Dot → player fails.
+                # But session_id and stream details should still be set.
+                logger.info(
+                    "_build_ma_stream_url: play_index returned error (expected for Echo Dot): %s",
+                    str(exc)[:200],
+                )
+
+            # Wait for MA to resolve stream details
+            await asyncio.sleep(3)
+
+            # Re-read queue info to get the new session_id
+            try:
+                queue_info = await self.get_queue_info(queue_id)
+                session_id = str(queue_info.get("session_id") or "").strip()
+                logger.info(
+                    "_build_ma_stream_url: after play_index session_id=%s state=%s",
+                    session_id or "(still empty)",
+                    queue_info.get("state", "?"),
+                )
+            except Exception as exc:
+                logger.warning("_build_ma_stream_url: failed to re-read queue info: %s", exc)
+
+        # Final fallback: use placeholder if session_id is still empty
+        if not session_id:
+            session_id = "echoweave"
+            logger.warning("_build_ma_stream_url: using placeholder session_id")
 
         url = f"http://{ma_host}:{ma_stream_port}/single/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}"
         logger.info("_build_ma_stream_url: built url=%s", url)
