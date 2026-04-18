@@ -5,6 +5,23 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.77] - 2026-04-18
+
+### Fixed
+
+- **Root cause of 500/502**: Changed `option="add"` to `option="play"` when
+  enqueueing search results via EchoWeave voice/Alexa flow.  With `"add"` MA
+  puts the item in the queue but never resolves streamdetails — so when we try
+  to stream it via MA's stream server, MA's Alexa/JioSaavn provider is called
+  on-demand and times out (TimeoutError in `providers/alexa/__init__.py`),
+  returning HTTP 500.
+- With `option="play"` MA calls `play_index` internally which runs
+  `_load_item` → resolves JioSaavn CDN URL → sets `player.current_media` with
+  `session_id` in `custom_data`.  We wait 5 seconds for this to complete, then
+  extract the real `session_id` and correct `queue_item_id`.
+- The result: our stream URL has the correct `session_id` that matches
+  `queue.session_id`, so MA's stream server serves the audio correctly.
+
 ## [0.3.76] - 2026-04-18
 
 ### Fixed

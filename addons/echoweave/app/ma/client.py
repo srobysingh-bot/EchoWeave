@@ -622,11 +622,16 @@ class MusicAssistantClient:
             )
         )
 
-        # When skip_playback_start is True (Alexa flow), bypass play_media default
-        # (which would try to start playback on the Echo Dot and fail).
-        # Instead, add the item to the MA queue with option="add" (queue-only, no
-        # playback start) so that MA can serve the audio stream for it, then use
-        # the real queue_item_id that MA assigned.
+        # When skip_playback_start is True (Alexa flow):
+        # Use option="play" so MA calls play_index internally.  play_index:
+        #   1. Sets queue.session_id = random(8)
+        #   2. Calls _load_item which resolves streamdetails (JioSaavn CDN URL etc)
+        #   3. Calls play_media → sets player.current_media with session_id in custom_data
+        #
+        # We wait a few seconds for step 3, then read the real session_id from
+        # current_media.  This is the ONLY way to get a valid stream URL for
+        # tracks served by MA's Alexa/JioSaavn provider — option="add" skips
+        # the streamdetails resolution so MA returns 500 when we try to stream.
         if skip_playback_start:
             effective_uri = uri or f"library://{self._singular_media_type(media_type)}/{item_id}"
             # Resolve the actual MA player queue ID. The input queue_id may be a logical
@@ -671,12 +676,12 @@ class MusicAssistantClient:
                             ["player_queues/play_media", "players/play_media"],
                             queue_id=synthetic_queue_id,
                             media=media_candidate,
-                            option="add",
+                            option="play",
                         )
                         logger.info(
                             json.dumps(
                                 {
-                                    "event": "ma_skip_enqueue_add_ok",
+                                    "event": "ma_skip_enqueue_play_ok",
                                     "request_id": request_id,
                                     "home_id": home_id,
                                     "player_id": player_id,
@@ -685,10 +690,17 @@ class MusicAssistantClient:
                                 }
                             )
                         )
-                        # Find the real queue_item_id that MA assigned
+                        # Wait for MA's play_index to complete:
+                        # _load_item resolves streamdetails (JioSaavn CDN URL) and
+                        # play_media sets player.current_media with session_id.
+                        # Typically takes 2-6 seconds depending on provider.
+                        await asyncio.sleep(5.0)
+
+                        # Try to get the queue_item_id from current queue item
+                        # (play_index makes it the current item)
                         try:
                             all_items = await self.get_queue_items(synthetic_queue_id)
-                            # Check last item first (most recently added)
+                            # Check last item first (most recently enqueued/played)
                             for q_item in reversed(all_items):
                                 q_uri = str(q_item.uri or "").strip()
                                 q_name = str(q_item.name or "").strip().lower()
@@ -715,7 +727,7 @@ class MusicAssistantClient:
                                     )
                                     break
                             if not enqueue_ok and all_items:
-                                # Could not match by URI/name — use last item (just added)
+                                # Could not match by URI/name — use last item (just played)
                                 synthetic_item_id = all_items[-1].queue_item_id
                                 enqueue_ok = True
                                 logger.info(
@@ -733,11 +745,38 @@ class MusicAssistantClient:
                             logger.warning(
                                 "ma_skip_enqueue: could not list queue items: %s", _items_exc,
                             )
+
+                        # Also try to extract the real session_id from current_media
+                        # so the stream URL we return has the correct session_id
+                        # (avoids the 404 that "nosession" gets when session_id is set).
+                        try:
+                            players = await self.get_players()
+                            for _p in players:
+                                _aq = str(
+                                    _p.get("active_queue")
+                                    or _p.get("active_source")
+                                    or _p.get("player_id")
+                                    or ""
+                                )
+                                if _aq == synthetic_queue_id:
+                                    _sid = self._extract_session_id_from_player(_p)
+                                    if _sid:
+                                        _cache_session_id(synthetic_queue_id, _sid)
+                                        logger.info(
+                                            "ma_skip_enqueue: cached session_id=%s queue_id=%s",
+                                            _sid, synthetic_queue_id,
+                                        )
+                                    break
+                        except Exception as _sid_exc:
+                            logger.debug("ma_skip_enqueue: session_id extract failed: %s", _sid_exc)
+
+                        if enqueue_ok:
+                            break
                     except Exception as _enqueue_exc:
                         logger.warning(
                             json.dumps(
                                 {
-                                    "event": "ma_skip_enqueue_add_failed",
+                                    "event": "ma_skip_enqueue_play_failed",
                                     "request_id": request_id,
                                     "home_id": home_id,
                                     "player_id": player_id,
