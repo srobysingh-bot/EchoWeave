@@ -40,8 +40,8 @@ class EdgeConnectorWSClient:
         home_id: str,
         command_handler: CommandHandler,
         source_queue_id: str = "",
-        reconnect_base_seconds: float = 2.0,
-        reconnect_max_seconds: float = 30.0,
+        reconnect_base_seconds: float = 1.0,
+        reconnect_max_seconds: float = 15.0,
     ) -> None:
         self._worker_base_url = worker_base_url.rstrip("/")
         self._connector_id = connector_id

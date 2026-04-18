@@ -13,6 +13,7 @@ export ECHOWEAVE_BACKEND_URL="$(bashio::config 'backend_url')"
 export ECHOWEAVE_WORKER_BASE_URL="$(bashio::config 'worker_base_url')"
 export ECHOWEAVE_TUNNEL_BASE_URL="$(bashio::config 'tunnel_base_url')"
 export ECHOWEAVE_EDGE_SHARED_SECRET="$(bashio::config 'edge_shared_secret')"
+export ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET="$(bashio::config 'connector_bootstrap_secret')"
 export ECHOWEAVE_CONNECTOR_ID="$(bashio::config 'connector_id')"
 export ECHOWEAVE_CONNECTOR_SECRET="$(bashio::config 'connector_secret')"
 export ECHOWEAVE_TENANT_ID="$(bashio::config 'tenant_id')"
@@ -43,7 +44,7 @@ mkdir -p /data/ask
 mkdir -p /data/logs
 
 bashio::log.info "--------------------------------------------"
-bashio::log.info " EchoWeave v0.3.8 starting"
+bashio::log.info " EchoWeave v0.3.65 starting"
 bashio::log.info " Build ID:      ${ECHOWEAVE_BUILD_ID}"
 bashio::log.info "--------------------------------------------"
 bashio::log.info " Mode:          ${ECHOWEAVE_MODE:-legacy}"
@@ -66,7 +67,7 @@ bashio::log.info "--------------------------------------------"
 if [ -z "$ECHOWEAVE_TUNNEL_BASE_URL" ] && [ "$ECHOWEAVE_MODE" = "edge" ]; then
     bashio::log.info "No tunnel_base_url configured – starting Cloudflare Quick Tunnel..."
     TUNNEL_LOG="/data/logs/cloudflared.log"
-    cloudflared tunnel --url http://127.0.0.1:5000 --no-autoupdate > "$TUNNEL_LOG" 2>&1 &
+    cloudflared tunnel --url http://127.0.0.1:5000 --no-autoupdate --protocol http2 > "$TUNNEL_LOG" 2>&1 &
     CLOUDFLARED_PID=$!
 
     # Wait for the tunnel URL to appear (up to 30 seconds)
@@ -83,12 +84,40 @@ if [ -z "$ECHOWEAVE_TUNNEL_BASE_URL" ] && [ "$ECHOWEAVE_MODE" = "edge" ]; then
 
     if [ -n "$TUNNEL_URL" ]; then
         export ECHOWEAVE_TUNNEL_BASE_URL="$TUNNEL_URL"
-        bashio::log.info "Quick Tunnel active: $TUNNEL_URL (PID=$CLOUDFLARED_PID)"
+        bashio::log.info "Quick Tunnel active: $TUNNEL_URL (PID=$CLOUDFLARED_PID, protocol=http2)"
     else
         bashio::log.warning "Quick Tunnel failed to start within 30s. Logs:"
         cat "$TUNNEL_LOG" 2>/dev/null || true
         bashio::log.warning "Streaming from Alexa will NOT work without a tunnel."
     fi
+
+    # Background tunnel health monitor: restart cloudflared if it crashes
+    (
+        while true; do
+            sleep 30
+            if ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
+                bashio::log.warning "Cloudflared tunnel (PID=$CLOUDFLARED_PID) died — restarting..."
+                TUNNEL_LOG="/data/logs/cloudflared.log"
+                cloudflared tunnel --url http://127.0.0.1:5000 --no-autoupdate --protocol http2 > "$TUNNEL_LOG" 2>&1 &
+                CLOUDFLARED_PID=$!
+                NEW_URL=""
+                for j in $(seq 1 30); do
+                    if [ -f "$TUNNEL_LOG" ]; then
+                        NEW_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" | head -1)
+                        if [ -n "$NEW_URL" ]; then
+                            break
+                        fi
+                    fi
+                    sleep 1
+                done
+                if [ -n "$NEW_URL" ]; then
+                    bashio::log.info "Tunnel restarted with new URL: $NEW_URL (PID=$CLOUDFLARED_PID)"
+                else
+                    bashio::log.warning "Tunnel restart failed to get URL within 30s."
+                fi
+            fi
+        done
+    ) &
 fi
 
 exec python -m uvicorn app.main:app \

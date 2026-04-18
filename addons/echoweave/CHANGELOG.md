@@ -5,6 +5,19 @@ All notable changes to EchoWeave will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.65] - 2026-04-18
+
+### Fixed
+
+- Fix "home connector is offline" error caused by Cloudflare Durable Object eviction: `relayCommand` now waits up to 5 seconds for the connector WebSocket to reconnect before returning 503.
+- Reduce WebSocket reconnect backoff from 2s/30s to 1s/15s so the add-on reconnects faster after DO eviction.
+- Switch Quick Tunnel from QUIC to HTTP/2 (`--protocol http2`) to eliminate QUIC timeout instability on ARM/HA hosts.
+- Add background tunnel health monitor in `run.sh` that auto-restarts `cloudflared` if the process crashes.
+- Fix missing `ECHOWEAVE_CONNECTOR_BOOTSTRAP_SECRET` export in `run.sh` (was causing 401 Unauthorized on edge connector registration).
+- Increase edge signature `max_age_seconds` from 60 to 300 to tolerate clock skew between Cloudflare edge and HA host.
+- Add `recent_alexa_users` table to `schema.sql` (was missing, causing silent errors in the Alexa home-lookup fallback path).
+- Unify version strings across `config.yaml`, `run.sh`, and `constants.py`.
+
 ## [0.3.64] - 2026-04-17
 
 ### Fixed

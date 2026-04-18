@@ -99,6 +99,11 @@ CREATE TABLE IF NOT EXISTS stream_tokens (
   FOREIGN KEY(home_id) REFERENCES homes(id)
 );
 
+CREATE TABLE IF NOT EXISTS recent_alexa_users (
+  alexa_user_id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_alexa_accounts_home_id ON alexa_accounts(home_id);
 CREATE INDEX IF NOT EXISTS idx_home_connectors_home_id ON home_connectors(home_id);
 CREATE INDEX IF NOT EXISTS idx_connector_sessions_connector_id ON connector_sessions(connector_id);

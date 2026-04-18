@@ -17,7 +17,7 @@ def sign_edge_request(*, shared_secret: str, method: str, path: str, timestamp: 
     return ts, _base64url(signature)
 
 
-def verify_edge_request(*, shared_secret: str, method: str, path: str, timestamp: str, signature: str, max_age_seconds: int = 60) -> bool:
+def verify_edge_request(*, shared_secret: str, method: str, path: str, timestamp: str, signature: str, max_age_seconds: int = 300) -> bool:
     if not shared_secret or not timestamp or not signature:
         return False
 

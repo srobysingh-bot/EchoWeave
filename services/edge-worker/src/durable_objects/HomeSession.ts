@@ -170,6 +170,8 @@ export class HomeSession {
     };
     this.wireConnectorSocket(server);
 
+    this.notifyConnectorAttached();
+
     await this.state.storage.put("last_attach", {
       connector_id: connectorId,
       tenant_id: tenantId,
@@ -180,9 +182,37 @@ export class HomeSession {
     return createWebSocketUpgradeResponse(client);
   }
 
+  private waitForConnectorResolve: ((value: void) => void) | null = null;
+
+  private notifyConnectorAttached(): void {
+    if (this.waitForConnectorResolve) {
+      this.waitForConnectorResolve();
+      this.waitForConnectorResolve = null;
+    }
+  }
+
+  private async waitForConnector(timeoutMs: number): Promise<boolean> {
+    if (this.isConnectorOnline()) return true;
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.waitForConnectorResolve = null;
+        resolve(this.isConnectorOnline());
+      }, timeoutMs);
+      this.waitForConnectorResolve = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+    });
+  }
+
   private async relayCommand(request: Request): Promise<Response> {
     if (!this.isConnectorOnline() || !this.connectorSocket) {
-      return this.json({ error: "connector-offline" }, 503);
+      console.info(JSON.stringify({ event: "connector_offline_grace_wait", wait_ms: 5000 }));
+      const reconnected = await this.waitForConnector(5000);
+      if (!reconnected || !this.connectorSocket) {
+        return this.json({ error: "connector-offline" }, 503);
+      }
+      console.info(JSON.stringify({ event: "connector_reconnected_during_grace" }));
     }
 
     const parentRequestId = request.headers.get("x-request-id") ?? "";

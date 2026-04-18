@@ -201,7 +201,7 @@ async def edge_stream(queue_id: str, queue_item_id: str, request: Request):
         try:
             ts_value = int(ts)
             import time as _time
-            if abs(_time.time() - ts_value) > 60:
+            if abs(_time.time() - ts_value) > 300:
                 auth_fail_reason = "stale_timestamp"
         except ValueError:
             auth_fail_reason = "invalid_timestamp_format"
